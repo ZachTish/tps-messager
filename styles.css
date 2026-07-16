@@ -1,0 +1,93 @@
+/* =======================================================================
+   TPS Notifier — styles.css
+   ======================================================================= */
+
+/* ── Collapsible Settings Sections ─────────────────────────────────────── */
+
+.tps-collapsible-section {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.tps-collapsible-section-summary {
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  list-style: none;
+}
+
+.tps-collapsible-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tps-collapsible-section-summary::before {
+  content: '▶';
+  font-size: 0.65em;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.tps-collapsible-section[open] > .tps-collapsible-section-summary::before {
+  transform: rotate(90deg);
+}
+
+.tps-collapsible-section-summary:hover {
+  color: var(--interactive-accent);
+}
+
+.tps-collapsible-section[open] > .tps-collapsible-section-summary {
+  margin-bottom: 8px;
+}
+
+.tps-collapsible-section-icon {
+  display: inline-block;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.tps-collapsible-section-title {
+  flex: 1;
+}
+
+.tps-collapsible-section-description {
+  margin: 4px 0 8px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.tps-collapsible-section-content {
+  padding-top: 4px;
+}
+
+/* Nested subsections (popouts) */
+.tps-collapsible-subsection {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: color-mix(in srgb, var(--background-secondary) 40%, transparent);
+}
+
+.tps-collapsible-subsection > summary {
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tps-collapsible-subsection > summary:hover {
+  color: var(--interactive-accent);
+}
+
+/* ── Reminders info box ─────────────────────────────────────────────────── */
+
+.tps-notifier-info-box {
+  padding: 10px;
+  color: var(--text-muted);
+}

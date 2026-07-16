@@ -1,0 +1,25 @@
+{
+    "name": "tps-messager",
+    "version": "1.0.0",
+    "description": "Push notification delivery transport for the TPS suite via ntfy.",
+    "main": "main.js",
+    "scripts": {
+        "dev": "node esbuild.config.mjs",
+        "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "node --test scripts/test-tps-contracts.mjs && node --test scripts/test-notifier-contract.mjs && node --test scripts/test-notifier-settings.mjs && node --test scripts/test-manual-composer.mjs && node --test scripts/test-notifier-safety.mjs && npm run build",
+        "version": "1.0.0"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/node": "^16.11.6",
+        "@typescript-eslint/eslint-plugin": "5.29.0",
+        "@typescript-eslint/parser": "5.29.0",
+        "builtin-modules": "3.3.0",
+        "esbuild": "^0.19.3",
+        "obsidian": "latest",
+        "tslib": "2.4.0",
+        "typescript": "4.7.4"
+    }
+}

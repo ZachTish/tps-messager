@@ -1,146 +1,171 @@
 # TPS Notifier
 
-## Development and deployment
+TPS Notifier is the outbound push transport for the TPS plugin suite. TPS Controller owns reminder evaluation and state; Notifier validates and publishes messages to an ntfy topic and optionally includes an Obsidian callback link.
 
-Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtisherman/TishOS Plugin Development/tps-messager`, outside both vaults. `npm run build` and watch builds deploy byte-changed runtime artifacts by default only to `/Users/zachtisherman/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian Plugin Test Vault/.obsidian/plugins/tps-messager`; `npm test` is therefore isolated even though it ends with a production-mode build. Promotion to `/Users/zachtisherman/TishOS v0.1/.obsidian/plugins/tps-messager` is an explicit guarded post-validation action. Neither target overwrites `data.json` or other runtime-owned state.
+## Development lanes and BRAT
 
-- 2026-07-16 isolation validation: all 21 declared tests and the required final `npm run build` passed with `[runtime-deploy] target=test ... unchanged`. Obsidian 1.12.7 loaded Notifier disabled in the registered test vault, with no copied topic and no outbound notification. No live promotion occurred, and production runtime checksums remained unchanged.
+- Stable source: `Plugin Development/tps-messager` on `main`.
+- Optimization source: `Plugin Development/tps-messager (Optimize)` on `optimization`.
+- Stable feature/fix agents may build into this test vault, validate, version, and publish a private GitHub release. BRAT on production devices pulls that release; an agent does not need to copy files into the production vault.
+- Optimization builds are build-only (`[runtime-deploy] target=none lane=optimization`). They do not overwrite the test runtime, change a version, create a tag/release, merge to `main`, or touch production.
+- Periodic alignment merges stable `main` into `optimization`. After the user accepts the optimization work, it is reconciled into `main`, fully revalidated, versioned, and published as a normal private BRAT-compatible release.
 
-## Install with BRAT
+For BRAT, add the private repository `ZachTish/tps-messager` and track **Latest**. A fine-grained GitHub token, if required, needs only read access to repository contents. Never store that token in this repository or a synced note.
 
-Add the private repository `ZachTish/tps-messager` to BRAT and select **Latest** tracking so BRAT follows the newest GitHub release. For private-repository access, give BRAT a fine-grained GitHub token scoped to this repository with **Contents: Read-only** permission. Never commit the token to this repository, an Obsidian vault, or any synced note.
+## Current features
 
-## Mobile modal contract
+### Transport
 
-Notifier input modals use `tps-keyboard-aware-modal`, reusing TPS GCM's shared visible-viewport behavior on mobile.
+- HTTP(S) ntfy publishing through Obsidian `requestUrl`.
+- Configurable server/reverse-proxy base path, topic, and priority.
+- Delivery disabled by default until a valid target is applied and explicitly enabled.
+- Message titles, Markdown bodies, and optional Obsidian callback links.
+- Legacy `obsidian://tps-notifier` callback links remain accepted; newly generated links use `obsidian://tps-messager`.
+- Four requests may be active concurrently. Up to 100 more wait in FIFO order rather than being dropped.
+- Pending requests prepared for an older route are canceled as `delivery-invalidated` before network activity when delivery is disabled or an applied server/topic/priority changes. Already-started network requests continue because Obsidian exposes no supported cancellation.
 
-Sends push notifications from the vault to any device using ntfy.sh or a self-hosted ntfy server.
+### Settings safety
 
-TPS Controller owns reminder evaluation, overdue state, snoozing, and the in-vault notification view. TPS Notifier is the delivery transport that Controller calls when a reminder needs to leave Obsidian.
+- Server/topic/priority edits live in an isolated draft.
+- The previously applied route remains active while an enabled user edits a draft.
+- **Apply** validates and durably saves one immutable snapshot. All transport controls lock while that transaction is pending.
+- **Discard draft** returns to the active settings. Closing the settings tab discards only when no Apply is in progress.
+- Enabling takes effect only after persistence succeeds.
+- Disabling blocks new sends immediately while its save is pending and cancels queued, not-yet-attempted sends. It changes the active settings snapshot only after persistence succeeds. A failed save restores the prior settings snapshot and reports failure, but intentionally does not resurrect canceled queue entries.
+- Settings writes are serialized. Every caller waits for its own save and receives its own failure.
+- Future, malformed-version, and malformed-root settings documents are read-only and delivery-disabled. Malformed known fields and previously enabled targets outside the supported contract are disabled with an explicit startup/settings warning; field-level problems remain repairable only through an explicit valid **Apply**.
+- Persisted priorities are never rounded or clamped while delivery remains active. Malformed targets never inherit the default public server.
 
-## What It Does
+### Delivery result contract
 
-### Push Notifications
+A successful structured send resolves only after a correlated ntfy message receipt is present:
 
-- Delivers notifications through the ntfy HTTP API.
-- Fresh installs start with delivery disabled until you explicitly enable transport.
-- Supports configurable server URL, topic, and priority.
-- Supports a master transport enable/disable toggle.
-- Includes an Obsidian callback link when Controller passes a source file.
-- Uses Obsidian `requestUrl` for plugin-safe delivery.
-- Includes a dry-run command and settings diagnostic that validate the prepared ntfy URL, headers, priority, callback link, and fallback body without sending a network request.
+```ts
+{
+  outcome: "accepted";
+  httpStatus: number;
+  providerMessageId: string;
+}
+```
 
-### Manual Composer
+Failures are structurally consumable across plugin bundles:
 
-- Command: Send Custom Notification.
-- Can be disabled from settings.
-- Includes a settings-based test send button when transport and manual composer are enabled; failed test sends report the actionable delivery/configuration error instead of a generic failure notice.
-- Composer submit lifecycle is centralized in `submitManualComposerNotification()` so validation, send failure, and success/close behavior use one tested decision path.
-- Composer send failures stay open and render inline status beside the send controls so the user can correct settings and retry.
-- Successful sends are the only path that closes the composer and shows `Notification Sent`.
+```ts
+{
+  code: TPSNotifierErrorCode;
+  attempted: boolean;
+  deliveryState: "not-attempted" | "rejected" | "unconfirmed";
+  duplicateSafeToRetry: boolean; // duplicate safety, not timing/advisability
+  httpStatus?: number;
+}
+```
 
-### Controller Integration
+- Local validation/lifecycle failures are `not-attempted`.
+- `delivery-invalidated` means bounded queued work was canceled before a network attempt because the active route changed.
+- A 4xx is `rejected` only when its JSON matches ntfy's structured error schema and its numeric code is in the reviewed publish-error allowlist. Unknown/future codes—including family-shaped proxy 499 responses—remain unconfirmed until deliberately reviewed. A confirmed rejection is duplicate-safe to retry only after the cause is corrected.
+- Redirects, unstructured or malformed 4xx responses, transport exceptions, HTTP 408/5xx, and 2xx responses without a correlated ntfy message receipt are `unconfirmed`. Callers must check ntfy before retrying because acceptance cannot be ruled out.
+- Provider response text is never propagated, logged, or displayed.
 
-- Reminder rules and polling intervals live in TPS Controller settings.
-- Controller calls `sendNotification()` or `sendMessage()` through this plugin's API.
-- Notifier itself does not poll and does not evaluate reminders.
-- Notification links use `obsidian://tps-messager`; the legacy `obsidian://tps-notifier` protocol remains accepted for existing messages.
+### Manual composer and diagnostics
 
-## Source Layout
+- `Send Custom Notification` command, dynamically available only when the manual composer is enabled.
+- Single-instance, labeled composer with initial focus, Ctrl/Cmd+Enter submit, inline live status, independently namespaced responsive mobile styling, locked inputs while sending, and duplicate-submit prevention.
+- Closing a composer during delivery does not cancel the request. The plugin displays both an immediate “continues” notice and the eventual accepted/failure result when the plugin is still loaded.
+- `Validate Notification Delivery Setup (Dry Run)` command validates the applied target without network traffic.
+- Settings dry run validates the unsaved draft without persisting it or exposing the topic, full URL, note path, title, or body.
+- A real settings test send appears whenever the applied transport is enabled; it is independent of manual-composer availability and is guarded against duplicate clicks across rerenders.
+
+## Supported input contract
+
+The transport intentionally accepts only forms it can validate consistently:
+
+- Topic: 1–64 characters from `[-_A-Za-z0-9]`, matching the official ntfy topic contract.
+- Server: absolute `http:` or `https:` URL of at most 2,048 characters, optionally with a reverse-proxy path.
+- Server credentials, query strings, fragments, controls, and backslashes are rejected.
+- Priority: integer 1–5.
+- Body: text up to 4,096 UTF-8 bytes. Larger ntfy bodies become attachments, so Notifier rejects them instead of silently changing message type.
+- Title: text up to 512 UTF-8 bytes. C0/C1 controls are rejected; non-ASCII titles use bounded RFC 2047 encoded words.
+- Click header: text up to 4,096 characters with no header controls. Internally generated links must reference a current `TFile` in the active vault.
+
+These restrictions remove previously tolerated inputs that were either outside ntfy's documented topic rules, could leak credentials, or could change semantics unexpectedly. An upgrade warning is shown if such a target had been enabled. Protected self-hosted topics need a future explicit authentication feature; embedding credentials in the server URL is not a supported substitute.
+
+Plain HTTP remains supported for intentional local/self-hosted use, but it does not encrypt the topic, title, body, or callback link. When a caller supplies a file, the `Click` header sent to the configured ntfy server contains the vault name and full vault-relative note path so the subscriber can reopen it. That data is not logged by Notifier, but it is transmitted to the provider and subscriber; callers should omit `file` when that disclosure is not appropriate.
+
+## API
+
+`plugin.api` is exposed through a read-only getter. The API object, its capability object, and the active settings snapshot are frozen.
+
+```ts
+api.apiVersion === 2
+api.capabilities === {
+  structuredReceipts: true,
+  redactedDiagnostics: true,
+  stableSequenceIds: false,
+}
+
+api.send({ title?, body, file? })       // structured receipt
+api.validate({ title?, body, file? })   // redacted, non-sending diagnostic
+api.sendNotification(title, body, file?) // legacy Promise<void>
+api.sendMessage(body, file?, title?)     // legacy Promise<void>
+api.dryRunMessage(body, file?, title?)   // deprecated raw request
+```
+
+Cached methods fail closed permanently after unload, including after a same-instance reload; consumers must resolve the current API again. Structured v2 calls reject unknown request fields and blank/whitespace-only bodies. The two legacy send methods remain for compatibility, preserve their argument order and historical empty-body placeholder, and now reject unconfirmed delivery instead of treating an arbitrary 2xx response as accepted. Consumers should migrate to `apiVersion === 2`, `send()`, and structural error fields before this branch is promoted.
+
+`stableSequenceIds` is deliberately `false`. ntfy sequence IDs update/replace notifications; they are not a general exact-once publishing guarantee. No automatic retry exists until caller correlation and partial-batch accounting are designed across the suite.
+
+## Lifecycle and privacy
+
+- A true initialization failure exposes no API. A settings-read failure intentionally reaches `ready` with defaults plus a settings-read-only API, so diagnostics can explain the block while all delivery and writes fail closed.
+- Queued settings writes reject immediately on unload, while an already-started save retains ownership until it settles. Queued deliveries reject on unload or route invalidation. An already-started network call cannot be canceled by the supported Obsidian `requestUrl` API and may still return its actual result to the original caller.
+- A same-instance reload waits for an active settings write before reading persisted state and creates fresh queues. Startup fails closed after 15 seconds instead of creating a second queue alongside a stuck persistence call; a later reload can succeed once that original call settles.
+- Deferred or overlapping loads are epoch-gated after every asynchronous initialization boundary, so an unloaded/superseded load cannot register commands, re-enable logging, or expose an API.
+- Debug logs contain structured lengths, booleans, status, host (only when debug logging is enabled), queue depth, and error classification.
+- Errors are always logged as bounded classifications. Generic raw error messages and all stacks are omitted. Notification body/title, topic, credentials, provider response text, full delivery URLs, and vault-relative note paths are excluded from intentional log metadata.
+- Dedupe logging state is bounded to 300 entries.
+
+## Known limitations
+
+- No first-class ntfy username/password or access-token setting. Do not embed credentials in the server URL.
+- Obsidian `requestUrl` exposes no supported timeout or abort signal. If all four active requests hang, queued delivery waits. A fake `Promise.race` timeout would misreport an in-flight request and invite duplicate sends, so none is used.
+- ntfy itself does not provide an exact-once guarantee for this workflow. `unconfirmed` must remain a real state.
+- A reverse proxy must preserve the standard ntfy JSON message receipt. A stripped or rewritten 2xx body is intentionally `unconfirmed`.
+- `dryRunMessage()` returns a sensitive raw request and remains only for compatibility. New code should use `validate()`.
+- There is no per-message UI ledger or cross-restart reconciliation yet. Provider acceptance can be proved for a returned receipt, but exact-once delivery cannot be guaranteed after a lost response or crash.
+- Existing Controller, AI Gateway, and Watchlist optimization consumers still require a coordinated API-v2 migration; see `Audit.md`.
+- Each repository build currently imports the adjacent workspace deployment helper and is not standalone-buildable in GitHub Actions.
+
+## Source layout
 
 ```text
 src/
-  main.ts                  - Plugin entry, API exposure, ntfy delivery, protocol handling, manual composer modal
-  manual-composer.ts       - Manual composer validation, failure messages, and submit lifecycle decisions
-  settings-tab.ts          - Settings UI for transport, diagnostics, and advanced protocol notes
-  settings-migration.ts    - Defaults and persisted settings sanitization
-  ntfy-url.ts              - ntfy server/topic validation and URL construction
-  notifier-safety.ts       - decoded protocol-path validation and credential-safe delivery diagnostics
-  types.ts                 - Settings type
-  tps-contracts.ts         - Shared TPS event and API contracts
-  logger.ts                - Debug logging wrapper with dedupe
+  main.ts                    lifecycle, immutable API/settings exposure, protocol handling, delivery orchestration
+  settings-tab.ts            draft/apply settings transaction UI and diagnostics
+  manual-composer.ts         pure validation/result decisions
+  manual-composer-modal.ts   accessible modal lifecycle and close-during-send reporting
+  ntfy-url.ts                strict target validation and URL construction
+  ntfy-request.ts            payload/header validation and immutable request preparation
+  notifier-delivery.ts       response classification and correlated receipt validation
+  notifier-errors.ts         typed/structural delivery failures
+  notifier-safety.ts         callback-path validation and redacted target summaries
+  settings-migration.ts      schema classification, safe defaults, and migration warnings
+  serial-task-queue.ts       closeable FIFO settings transactions
+  closable-task-pool.ts      bounded concurrent delivery with FIFO backpressure
+  logger.ts                  bounded, privacy-conscious structured diagnostics
+  tps-contracts.ts           TPS event compatibility plus Notifier API-v2 types
 ```
 
-## Diagnostics
+Unused private-registry helpers, generic card/list utilities, and the BRAT-ignored `styles-ui.css` were removed from the optimization lane.
 
-Debug logging is gated behind `Enable Logging`; errors always log. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, HTTP status failures, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Provider errors are redacted before they reach Notifier diagnostics or downstream retry UI.
+## Validation
 
-Obsidian passes protocol query values to handlers already decoded. Notifier validates and normalizes that decoded path exactly once, preserving legitimate percent characters such as `100% Complete.md` or a literal `%20`, rejecting traversal/absolute paths, and converting an unexpected open failure into an actionable notice instead of an unhandled callback rejection.
+Current optimization validation is intentionally isolated:
 
-## Settings
+- 69 automated tests pass.
+- TypeScript strict-null/no-implicit-any typecheck passes.
+- Tests cover official topic/URL boundaries, Unicode/header limits, 4,096-byte bodies, correlated receipts, structured rejection vs ambiguous delivery, response privacy, settings migration/version handling, exact settings-save ownership, immediate queue disposal, unload/overlapping-load races, permanently stale API references, route-generation invalidation, five-way concurrent delivery, strict v2 versus legacy compatibility, protocol paths, settings draft source invariants, modal accessibility/close behavior, and namespaced mobile CSS contracts.
+- `npm test` ends with an isolated production-mode build. Optimization output must report `[runtime-deploy] target=none lane=optimization`.
+- No provider request, Obsidian UI mutation/reload, test-runtime deployment, version bump, tag, GitHub release, or production action belongs to this optimization validation.
+- Composer/settings assertions are synthetic and source-level; rendered desktop/iOS acceptance remains an explicit later gate.
 
-Settings use direct collapsible sections with descriptive titles for the ntfy delivery toggle, server/topic/priority, manual composer/logging, and test notification controls.
-
-- `Enable delivery transport`: master outbound delivery toggle. Default: `off` on fresh installs.
-- `ntfy Server`: base server URL such as `https://ntfy.sh`. Default: `https://ntfy.sh`.
-- `ntfy Topic`: required topic name used as the POST target. Default: blank, so sends remain blocked until you provide a topic.
-- `Priority`: integer slider from `1` to `5`.
-- `Enable manual composer command`: registers the command palette action.
-- `Enable Logging`: enables verbose console logging; errors still log when disabled.
-
-Fresh-install safety contract:
-
-- No notification can be sent until delivery is enabled.
-- Even after enabling delivery, sends remain blocked until server and topic resolve to a valid ntfy URL.
-- The settings test button only appears when delivery and manual composer are both enabled.
-- Settings UI gates fail closed when the delivery enabled state is missing or malformed: transport-only server/topic/priority controls and the test-send section render only when delivery is explicitly enabled.
-
-## Commands and API
-
-- Command: `Send Custom Notification`
-- Command: `Validate Notification Delivery Setup (Dry Run)`
-- Exposed API:
-  - `sendNotification(title, body, file?)`
-  - `sendMessage(text, file?, title?)`
-  - `dryRunMessage(text, file?, title?)`
-- Supported protocol handlers:
-  - `obsidian://tps-messager`
-  - `obsidian://tps-notifier` (legacy alias)
-
-## Naming
-
-The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps-messager`; `tps-notifier` remains a compatibility protocol alias only.
-
-## Planned Improvements
-
-- Add bounded retry with backoff for failed ntfy pushes.
-- Add a rolling delivery log for troubleshooting.
-
-## Integration
-
-| Plugin | Relationship |
-| --- | --- |
-| TPS Controller | Primary dependency. Controller drives reminder evaluation and calls Notifier for delivery. |
-| TPS GCM | Writes item metadata that Controller reads. |
-| TPS Calendar Base | Independent except for file links passed through Controller notifications. |
-
-## Validation Notes
-
-- Current validation includes CLI tests/builds and targeted Obsidian settings UI checks after plugin reload.
-- Commands run:
-  - `npm test`
-  - `npm run build`
-- 2026-07-07: Added structured TPS Notifier delivery diagnostics. The plugin now logs flow events for plugin/settings lifecycle and save failures, settings dry-run/test-send clicks, manual composer open/submit decisions, dry-run preparation, send preparation/request/status/failure, and protocol callback blocks or file opens while avoiding message-body logging. Regression coverage updated in `scripts/test-manual-composer.mjs`. Validation: focused manual-composer diagnostics test and production build.
-- 2026-07-11: Fixed notification callback paths so already-decoded percent characters are preserved and protocol open failures are caught. Delivery diagnostics now record only sanitized host/security/topic-presence metadata and redact topics, credentials, and full target URLs from propagated errors. Validation: focused protocol/diagnostic safety tests, full `npm test`, and production build.
-- 2026-06-29: Simplified the Notifier settings tab by removing the search field, wrapper categories, and empty protocol-links section. Validation: `npm test`; Obsidian settings UI reload check.
-- 2026-06-29: Settings saves are serialized and coalesced so rapid text edits persist the latest full value instead of an earlier one-character write. Validation: `npm run build` and shared save-queue simulation; Controller settings UI was reloaded and checked as the representative TPS settings persistence path.
-- 2026-07-04: Settings test-send failures now reuse the manual composer failure message so disabled delivery, missing topic, and ntfy/network failures show actionable guidance. Validation: `npm test`, Obsidian reload and Home/command surface smoke check.
-- 2026-07-04: Manual composer submit lifecycle now keeps the modal open for validation and send failures, closes only after a successful send, and ignores duplicate in-flight clicks. Validation: `node --test scripts/test-manual-composer.mjs`, `npm test`, Obsidian reload, command palette registration check, and open/cancel UI smoke check.
-- 2026-07-04: Delivery settings UI now treats missing `enabled` state as disabled, hides transport-only fields and the test-send section unless delivery is explicitly enabled, and keeps the disabled explanatory copy visible. Validation: `node --test scripts/test-manual-composer.mjs`, `npm test`, Obsidian reload, settings UI toggle-off/toggle-on check without pressing Send Test, and live `data.json` restored to `enabled: true`.
-- 2026-07-04: Added `Validate Notification Delivery Setup (Dry Run)` and `dryRunMessage()` so TPS plugins can verify the exact prepared ntfy request without calling `requestUrl`. Validation: `node --test scripts/test-manual-composer.mjs`, `npm test`, Obsidian reload, command palette registration check, and live dry-run command notice `Dry run prepared: https://ntfy.sh/obsidian_alerts`.
-- Current automated coverage:
-  - TPS event/legacy contract names
-  - ntfy URL normalization and rejection cases
-  - request preparation ordering for disabled delivery before network/config use
-  - fake ntfy request contract for URL, headers, click link, and body fallback
-  - settings sanitization and migration behavior
-  - manual composer validation, failure messages, submit close decisions, and modal delegation to the submit helper
-  - dry-run command/API/settings diagnostics prepare requests without sending
-  - already-decoded protocol paths preserve literal percent characters and reject traversal/absolute paths
-  - delivery diagnostics redact ntfy topics, URL credentials, full targets, and custom title text
-
-## Settings layout
-
-The delivery toggle, ntfy server, topic, and priority are root-level core controls. Manual composer, logging, dry-run, and delivery testing are optional collapsed controls; the test-send subsection is the second and final collapse level. A fresh settings open closes every optional section.
-
-- 2026-07-13: Promoted transport configuration to the root, nested the optional test sender under diagnostics, and enforced a fully collapsed first-open state with a maximum depth of two. Validation: settings hierarchy audit, full test suite, production build/deploy, and Obsidian reload.
+See [Audit.md](Audit.md) for the remaining suite-wide risks and acceptance plan.

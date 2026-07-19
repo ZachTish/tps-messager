@@ -6,8 +6,7 @@
     "scripts": {
         "dev": "node esbuild.config.mjs",
         "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node --test scripts/test-tps-contracts.mjs && node --test scripts/test-notifier-contract.mjs && node --test scripts/test-notifier-settings.mjs && node --test scripts/test-manual-composer.mjs && node --test scripts/test-notifier-safety.mjs && npm run build",
-        "version": "1.0.0"
+        "test": "node --test scripts/test-tps-contracts.mjs && node --test scripts/test-notifier-contract.mjs && node --test scripts/test-notifier-delivery.mjs && node --test scripts/test-notifier-settings.mjs && node --test scripts/test-settings-serialization.mjs && node --test scripts/test-task-pool.mjs && node --test scripts/test-plugin-state.mjs && node --test scripts/test-manual-composer.mjs && node --test scripts/test-notifier-safety.mjs && npm run build"
     },
     "keywords": [],
     "author": "",

@@ -1,3 +1,5 @@
+import { isNotifierError } from './notifier-errors';
+
 export type ManualComposerSubmitResult = {
     shouldClose: boolean;
     statusText: string;
@@ -5,13 +7,19 @@ export type ManualComposerSubmitResult = {
 };
 
 export function getManualComposerFailureMessage(error: unknown): string {
-    const message = error instanceof Error ? error.message : 'Failed to send notification.';
-
-    if (message === 'TPS Notifier delivery is disabled in settings.') {
-        return 'TPS Notifier delivery is disabled in settings. Enable delivery transport in TPS Notifier settings, then try again.';
+    if (isNotifierError(error)) {
+        if (error.code === 'delivery-disabled') return error.message;
+        if (error.code === 'delivery-unconfirmed'
+            || error.code === 'delivery-rejected'
+            || error.code === 'delivery-busy'
+            || error.code === 'delivery-invalidated') return error.message;
+        if (error.code === 'not-ready' || error.code === 'internal-error') {
+            return `${error.message} Reload TPS Notifier before retrying.`;
+        }
+        return `${error.message} Correct the issue, then try again.`;
     }
 
-    return `${message} Fix the settings or network issue, then try again.`;
+    return 'Notification delivery failed before a result was available. Review the settings and logs before trying again.';
 }
 
 export function getManualComposerValidationMessage(title: string, body: string): string | null {
@@ -40,7 +48,7 @@ export async function submitManualComposerNotification(
         return {
             shouldClose: true,
             statusText: '',
-            noticeText: 'Notification Sent',
+            noticeText: 'Notification accepted by ntfy.',
         };
     } catch (error) {
         return {

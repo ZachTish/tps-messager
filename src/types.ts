@@ -1,3 +1,5 @@
+import type { TPSNotifierDiagnostic } from './tps-contracts';
+
 export interface TPSNotifierSettings {
     settingsVersion: number;
     enabled: boolean;
@@ -8,5 +10,10 @@ export interface TPSNotifierSettings {
     enableLogging: boolean;
 }
 
-/** @deprecated Use TPSNotifierSettings. */
-export type TPSMessagerSettings = TPSNotifierSettings;
+export interface TransportSettingsDraft {
+    ntfyServer: string;
+    ntfyTopic: string;
+    ntfyPriority: number;
+}
+
+export type NotifierDiagnostic = TPSNotifierDiagnostic;

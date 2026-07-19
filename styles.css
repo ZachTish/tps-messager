@@ -1,93 +1,134 @@
-/* =======================================================================
-   TPS Notifier — styles.css
-   ======================================================================= */
+/* TPS Notifier settings and composer. Every rule is plugin-scoped. */
 
-/* ── Collapsible Settings Sections ─────────────────────────────────────── */
-
-.tps-collapsible-section {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+.tps-notifier-settings .tps-notifier-settings-warning {
+  margin: 12px 0;
   padding: 10px 12px;
-  margin-bottom: 10px;
+  border: 1px solid var(--color-orange);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--color-orange) 10%, transparent);
+  color: var(--text-normal);
 }
 
-.tps-collapsible-section-summary {
-  font-weight: 600;
-  cursor: pointer;
+.tps-notifier-settings .tps-notifier-collapsible-section {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.tps-notifier-settings .tps-notifier-collapsible-section-summary {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
   user-select: none;
   list-style: none;
 }
 
-.tps-collapsible-section-summary::-webkit-details-marker {
+.tps-notifier-settings .tps-notifier-collapsible-section-summary::-webkit-details-marker {
   display: none;
 }
 
-.tps-collapsible-section-summary::before {
+.tps-notifier-settings .tps-notifier-collapsible-section-summary::before {
   content: '▶';
-  font-size: 0.65em;
-  transition: transform 0.15s ease;
   flex-shrink: 0;
   color: var(--text-muted);
+  font-size: 0.65em;
+  transition: transform 150ms ease;
 }
 
-.tps-collapsible-section[open] > .tps-collapsible-section-summary::before {
+.tps-notifier-settings .tps-notifier-collapsible-section[open] > .tps-notifier-collapsible-section-summary::before {
   transform: rotate(90deg);
 }
 
-.tps-collapsible-section-summary:hover {
+.tps-notifier-settings .tps-notifier-collapsible-section-summary:hover {
   color: var(--interactive-accent);
 }
 
-.tps-collapsible-section[open] > .tps-collapsible-section-summary {
-  margin-bottom: 8px;
-}
-
-.tps-collapsible-section-icon {
-  display: inline-block;
-  width: 18px;
-  flex-shrink: 0;
-}
-
-.tps-collapsible-section-title {
+.tps-notifier-settings .tps-notifier-collapsible-section-title {
   flex: 1;
 }
 
-.tps-collapsible-section-description {
-  margin: 4px 0 8px 0;
-  font-size: 13px;
+.tps-notifier-settings .tps-notifier-collapsible-section-description {
+  margin: 8px 0 4px;
   color: var(--text-muted);
-  line-height: 1.4;
+  font-size: var(--font-ui-small);
+  line-height: var(--line-height-normal);
 }
 
-.tps-collapsible-section-content {
+.tps-notifier-settings .tps-notifier-collapsible-section-content {
   padding-top: 4px;
 }
 
-/* Nested subsections (popouts) */
-.tps-collapsible-subsection {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  background: color-mix(in srgb, var(--background-secondary) 40%, transparent);
+.modal.tps-messager-composer {
+  width: min(640px, calc(100vw - 32px));
+  max-width: 100%;
 }
 
-.tps-collapsible-subsection > summary {
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
+.tps-messager-composer .tps-messager-composer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.tps-collapsible-subsection > summary:hover {
-  color: var(--interactive-accent);
+.tps-messager-composer .tps-messager-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-/* ── Reminders info box ─────────────────────────────────────────────────── */
+.tps-messager-composer .tps-messager-label {
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+}
 
-.tps-notifier-info-box {
-  padding: 10px;
+.tps-messager-composer .tps-messager-field input,
+.tps-messager-composer .tps-messager-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.tps-messager-composer .tps-messager-field textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.tps-messager-composer .tps-messager-status {
+  min-height: 1.5em;
   color: var(--text-muted);
+  line-height: var(--line-height-normal);
+}
+
+.tps-messager-composer .tps-messager-status.is-sending {
+  color: var(--text-accent);
+}
+
+.tps-messager-composer .tps-messager-status.is-error {
+  color: var(--text-error);
+}
+
+.tps-messager-composer .tps-messager-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+body.is-mobile .modal.tps-messager-composer,
+body.is-phone .modal.tps-messager-composer {
+  width: min(100%, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+}
+
+body.is-mobile .tps-messager-composer .modal-content,
+body.is-phone .tps-messager-composer .modal-content {
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+body.is-mobile .tps-messager-composer .tps-messager-composer-actions > button,
+body.is-phone .tps-messager-composer .tps-messager-composer-actions > button {
+  flex: 1 1 10rem;
 }

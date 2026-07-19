@@ -6,6 +6,10 @@ Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtish
 
 - 2026-07-16 isolation validation: all 21 declared tests and the required final `npm run build` passed with `[runtime-deploy] target=test ... unchanged`. Obsidian 1.12.7 loaded Notifier disabled in the registered test vault, with no copied topic and no outbound notification. No live promotion occurred, and production runtime checksums remained unchanged.
 
+## Install with BRAT
+
+Add the private repository `ZachTish/tps-messager` to BRAT and select **Latest** tracking so BRAT follows the newest GitHub release. For private-repository access, give BRAT a fine-grained GitHub token scoped to this repository with **Contents: Read-only** permission. Never commit the token to this repository, an Obsidian vault, or any synced note.
+
 ## Mobile modal contract
 
 Notifier input modals use `tps-keyboard-aware-modal`, reusing TPS GCM's shared visible-viewport behavior on mobile.

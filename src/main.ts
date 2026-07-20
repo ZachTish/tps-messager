@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, requestUrl } from 'obsidian';
+import { Notice, Plugin, TFile, requestUrl, type Events } from 'obsidian';
 import * as logger from './logger';
 import { NotifierDiagnostic, TPSNotifierSettings, TransportSettingsDraft } from './types';
 import { TPSNotifierSettingTab } from './settings-tab';
@@ -18,7 +18,14 @@ import { isNotifierError, normalizeLocalNotifierError, NotifierError } from './n
 import { executeNotifierDelivery, type NotifierDeliveryReceipt } from './notifier-delivery';
 import { RecoverableSerialTaskQueue } from './serial-task-queue';
 import { ClosableTaskPool, TaskPoolCapacityError } from './closable-task-pool';
-import type { TPSNotifierApi } from './tps-contracts';
+import {
+    parseTPSNotifierServiceRequest,
+    TPS_NOTIFIER_PROVIDER_PLUGIN_ID,
+    TPS_NOTIFIER_SERVICE_EVENTS,
+    TPS_NOTIFIER_SERVICE_PROTOCOL_VERSION,
+    type TPSNotifierApi,
+    type TPSNotifierServiceDescriptor,
+} from './tps-notifier-contract';
 
 type NotifierLifecycleState = 'loading' | 'ready' | 'failed' | 'disposed';
 
@@ -29,6 +36,7 @@ const SETTINGS_QUEUE_IDLE_TIMEOUT_MS = 15_000;
 export default class TPSNotifier extends Plugin {
     private settingsSnapshot = Object.freeze({ ...DEFAULT_SETTINGS }) as Readonly<TPSNotifierSettings>;
     private exposedApi?: Readonly<TPSNotifierApi<TFile>>;
+    private serviceDescriptor?: Readonly<TPSNotifierServiceDescriptor<TFile>>;
     private lifecycleState: NotifierLifecycleState = 'loading';
     private lifecycleEpoch = 0;
     private deliveryConfigurationEpoch = 0;
@@ -57,7 +65,10 @@ export default class TPSNotifier extends Plugin {
         this.deliveryConfigurationEpoch += 1;
         const loadEpoch = this.lifecycleEpoch;
         this.lifecycleState = 'loading';
+        const previousDescriptor = this.serviceDescriptor;
+        this.serviceDescriptor = undefined;
         this.exposedApi = undefined;
+        this.announceServiceUnavailable(previousDescriptor);
         logger.setLoggingEnabled(false);
 
         try {
@@ -121,6 +132,7 @@ export default class TPSNotifier extends Plugin {
             this.assertCurrentLoad(loadEpoch);
             this.lifecycleState = 'ready';
             this.exposeApi();
+            this.publishApiService(loadEpoch);
             logger.flow('Plugin', 'load:done');
         } catch (error) {
             if (loadEpoch !== this.lifecycleEpoch || this.lifecycleState !== 'loading') {
@@ -129,7 +141,10 @@ export default class TPSNotifier extends Plugin {
                     : new NotifierError('not-ready', 'TPS Notifier load was interrupted.');
             }
             this.lifecycleState = 'failed';
+            const failedDescriptor = this.serviceDescriptor;
+            this.serviceDescriptor = undefined;
             this.exposedApi = undefined;
+            this.announceServiceUnavailable(failedDescriptor);
             const failedError = new NotifierError('not-ready', 'TPS Notifier failed to load.');
             this.settingsQueue.close(failedError);
             this.deliveryPool.close(failedError);
@@ -145,7 +160,10 @@ export default class TPSNotifier extends Plugin {
         this.lifecycleState = 'disposed';
         this.transportConfigurationDirty = false;
         this.deliveryPauseTokens.clear();
+        const disposedDescriptor = this.serviceDescriptor;
+        this.serviceDescriptor = undefined;
         this.exposedApi = undefined;
+        this.announceServiceUnavailable(disposedDescriptor);
         const disposedError = new NotifierError('not-ready', 'TPS Notifier unloaded before this operation started.');
         this.settingsQueue.close(disposedError);
         this.deliveryPool.close(disposedError);
@@ -405,6 +423,48 @@ export default class TPSNotifier extends Plugin {
             },
         };
         this.exposedApi = Object.freeze(api);
+    }
+
+    private publishApiService(loadEpoch: number): void {
+        const api = this.exposedApi;
+        if (!api || loadEpoch !== this.lifecycleEpoch || this.lifecycleState !== 'ready') return;
+        const descriptor = Object.freeze({
+            protocolVersion: TPS_NOTIFIER_SERVICE_PROTOCOL_VERSION,
+            providerPluginId: TPS_NOTIFIER_PROVIDER_PLUGIN_ID,
+            api,
+        }) as Readonly<TPSNotifierServiceDescriptor<TFile>>;
+        this.serviceDescriptor = descriptor;
+        this.registerEvent((this.app.workspace as Events).on(TPS_NOTIFIER_SERVICE_EVENTS.REQUEST, (...args: unknown[]) => {
+            try {
+                if (loadEpoch !== this.lifecycleEpoch
+                    || this.lifecycleState !== 'ready'
+                    || this.serviceDescriptor !== descriptor) return;
+                const request = parseTPSNotifierServiceRequest(args[0]);
+                if (!request
+                    || loadEpoch !== this.lifecycleEpoch
+                    || this.lifecycleState !== 'ready'
+                    || this.serviceDescriptor !== descriptor) return;
+                request.accept(descriptor);
+            } catch {
+                logger.flowWarn('ApiService', 'request:consumer-rejected', { accepted: false });
+            }
+        }));
+        try {
+            this.app.workspace.trigger(TPS_NOTIFIER_SERVICE_EVENTS.AVAILABLE, descriptor);
+        } catch {
+            logger.flowWarn('ApiService', 'available:consumer-failed', { serviceStillAvailable: true });
+        }
+    }
+
+    private announceServiceUnavailable(
+        descriptor: Readonly<TPSNotifierServiceDescriptor<TFile>> | undefined,
+    ): void {
+        if (!descriptor) return;
+        try {
+            this.app.workspace.trigger(TPS_NOTIFIER_SERVICE_EVENTS.UNAVAILABLE, descriptor);
+        } catch {
+            logger.flowWarn('ApiService', 'unavailable:consumer-failed', { serviceUnavailable: true });
+        }
     }
 
     private readStructuredApiRequest(request: unknown): {

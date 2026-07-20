@@ -12,7 +12,7 @@ The plugin's feature set is worth keeping. No major user-facing capability—ntf
 
 The old implementation was nevertheless too optimistic at several boundaries: settings fields mutated the active route while the user typed, save callers could receive the wrong transaction result, any 2xx was called success, raw provider text could escape, stale API references could send after unload, a hard concurrency limit dropped work, and several unsupported inputs were silently tolerated.
 
-The optimization branch addresses those issues without touching either runtime. It is materially cleaner and safer, but it is not yet a suite-wide release candidate. The principal remaining risk is consumer alignment: Controller, AI Gateway, and Watchlist still use legacy discovery/call patterns and do not consume `not-attempted`/`rejected`/`unconfirmed` outcomes. Updating Notifier alone would expose existing duplicate-or-loss behavior in those consumers even though their legacy method signatures still compile.
+The optimization branch addresses those issues without touching either runtime. It is materially cleaner and safer, but it is not yet a suite-wide release candidate. Notifier now publishes a frozen v2 descriptor through supported Workspace request/available/unavailable events, and the canonical generated consumer adapter parses hostile boundaries into frozen single-read snapshots, epoch-gates delayed lifecycle callbacks, bounds provider observation, and structurally classifies v2 and transition-only v1 outcomes. The principal remaining risk is durable consumer alignment: Controller, AI Gateway, and Watchlist must persist `attempting` and the exact terminal outcome at their own mutation boundaries before Notifier can be selected through BRAT. Updating Notifier alone would still expose existing duplicate-or-loss behavior in their old delivery flows even though legacy method signatures compile.
 
 ## Feature-impact decision
 
@@ -52,11 +52,13 @@ Do not remove self-hosted ntfy support. Instead, add explicit SecretStorage-back
 - Failures distinguish `not-attempted`, `rejected`, and `unconfirmed`, with structural duplicate-safety fields. Only provider-shaped ntfy error JSON with a reviewed documented publish code establishes rejection; unknown/future codes and ambiguous HTTP responses remain unconfirmed.
 - Raw response text is not read. Provider error-message content is never logged, propagated, or displayed; rejection validation inspects only bounded JSON receipt fields plus error-field type/nonempty status.
 - Four active requests are preserved for throughput; later requests wait in a bounded FIFO instead of the fifth being discarded. Queued requests carry route-generation ownership and are invalidated before I/O when superseded.
-- No delivery/network timeout or automatic retry was added. The separate 15-second startup wait fails closed if an earlier settings save is still active; it never claims the save was canceled.
+- Core provider I/O remains uncancelable and has no fake delivery result timeout. The generated consumer adapter now has a separate 60-second bounded observation deadline: it reports `consumer-timeout` as durable unknown evidence, never falls through or retries, and does not claim that the underlying provider call was canceled. The separate 15-second startup wait still fails closed if an earlier settings save is active.
 
 ### API, UI, privacy, and cleanup
 
 - Frozen API v2 adds structured `send()` and redacted `validate()` while preserving legacy methods.
+- Canonical descriptor, request, receipt, and error parsers read hostile properties once and return frozen normalized snapshots; provider and consumer event handlers no longer trust a Boolean guard followed by live-object rereads.
+- Consumer lifecycle epochs reject delayed request accepts and old available/unavailable callbacks after dispose or restart. Throwing request/announcement listeners fail closed without destabilizing provider or consumer load.
 - Cached API methods remain permanently invalid after unload/reload, and the public API/settings slots are getter-only.
 - Core delivery no longer creates Notices, eliminating double-reporting for callers.
 - The manual composer is isolated into a class, is labeled/focusable, locks inputs while sending, reports close-during-send outcomes, and uses Notifier-owned mobile/CSS class names rather than hidden Global Context Menu coupling.
@@ -72,21 +74,21 @@ Do not remove self-hosted ntfy support. Instead, add explicit SecretStorage-back
 
 Owners: TPS Controller, TPS AI Gateway, TPS Watchlist, TPS Notifier.
 
-Current consumers still discover plugins through private registry access and commonly fall back from `plugin.api` to the plugin instance. They call `sendNotification()`/`sendMessage()` and treat any rejection as a total failure. That cannot safely represent a partial batch whose earlier messages were accepted and a later result is unconfirmed.
+Phase-2 status (2026-07-19): the canonical public v2 handshake/client is synchronized into Controller, Watchlist, and AI Gateway optimization worktrees. Watchlist event/failure notifications, AI Gateway completion notifications, and Controller hourly time-tracking reminders now persist an `attempting` barrier plus exact terminal certainty and never invoke a second route after provider invocation. The only compatibility lookup is the generated client's isolated v1 `plugin.api` bridge. Controller's general reminder batches intentionally remain on the legacy path because they do not yet have a stable per-item occurrence identity or reviewed batch-settlement policy.
 
 Concrete impact found in the read-only consumer audit:
 
 - Controller sends alert batches sequentially, then restores the entire pre-run alert state on any later failure. If item one was accepted and item two is rejected/unconfirmed, the next run resends item one.
-- Controller hourly time-tracking records dedupe only after the legacy promise resolves. An unconfirmed result can be retried during minutes 0, 1, and 2 of the same hour.
-- Watchlist commits event/watch state before notifying, then treats notification rejection as a whole-check failure. It avoids the same duplicate pattern but can permanently lose a not-attempted notification.
-- AI Gateway commits completion before notification and logs/drops every notification failure, leaving no accepted/rejected/unknown record.
-- Controller, Calendar, and Kanban carry older copied notifier contracts; Watchlist and AI Gateway do not negotiate API v2 at all.
+- Controller hourly time-tracking now uses an epoch-hour occurrence key and persistent barrier. Only a proven `attempted:false` result may retry during minutes 0, 1, and 2; ambiguous or provider-attempted outcomes remain terminal. General reminder batches retain the older whole-run rollback risk and remain deferred.
+- Watchlist now commits event/watch state and an exact event-keyed attempt barrier together, then settles notification certainty independently of the watch outcome. It does not automatically replay any terminal state.
+- AI Gateway now commits the terminal AI result and completion-notification attempt together, then compare-and-set settles by attempt ID without downgrading the AI result.
+- The synchronized client negotiates API v2 in Controller, Watchlist, and AI Gateway. Calendar and Kanban's older copied contract surfaces still require review only if they become Notifier consumers.
 
 Action:
 
-- Introduce the same structural `TPSNotifierApi` and `TPSNotifierErrorShape` in a single generated/shared contract source.
+- Keep the implemented structural `TPSNotifierApi`, service descriptor, consumer result, and error guards synchronized from Notifier's canonical source with `Plugin Development/sync-notifier-contract.mjs`; the workspace drift test must pass.
 - Implement one runtime structural error guard (`code`, `attempted`, `deliveryState`, `duplicateSafeToRetry`, optional `httpStatus`) in every consumer adapter. Do not use `instanceof` across separately bundled plugins. Treat this flag only as duplicate evidence; 401 needs auth correction, 413 needs payload correction, and 429 needs deliberate backoff.
-- Replace private `app.plugins.getPlugin` discovery with a suite-owned handshake over supported Obsidian events (request/accept plus ready/unavailable lifecycle events). During one compatibility window, isolate registry lookup in a single tested v1 adapter; do not spread the unsupported call or fall back to arbitrary plugin-instance methods.
+- Use the implemented request/accept plus available/unavailable Workspace handshake as the primary route. During one compatibility window, keep the generated client's single tested v1 registry adapter as the only unsupported lookup; do not spread the lookup or fall back to arbitrary plugin-instance methods.
 - First publish consumer compatibility releases that feature-detect `apiVersion === 2 && capabilities.structuredReceipts && send`, while retaining an explicit, tested v1 policy.
 - Define that v1 policy conservatively: legacy resolve records one `legacy-accepted` result and advances once; every legacy rejection becomes `unknown` with no automatic resend because v1 cannot prove whether delivery was attempted.
 - Treat consumers-first as a hard BRAT deployment gate, not merely a tested rollout option: repository updates are independent and old Controller plus new strict Notifier is duplicate-prone. Confirm every device has the compatibility consumers before publishing/selecting Notifier v2. Only after all consumers are confirmed on v2 should a later cleanup remove registry fallback, `.api || plugin`, and legacy calls.
@@ -96,6 +98,7 @@ Action:
 - On `not-attempted`, preserve state and allow retry after correction.
 - On structured `rejected`, preserve state and allow a deliberate retry after fixing configuration/auth/payload.
 - On `unconfirmed`, retain an explicit unknown state and do not automatically resend.
+- On `consumer-timeout`, retain an explicit unknown state and do not automatically resend; the original provider call may still complete after the consumer stops waiting.
 - Add mixed-version and cross-plugin tests for both rollout orders, accepted-first/unconfirmed-second, accepted-first/rejected-second, unload, and missing/old API.
 
 Acceptance gate: no consumer may convert `unconfirmed` into “definitely failed” or blindly resend the full batch.
@@ -154,9 +157,9 @@ After all consumers use v2, deprecate then remove public plugin-instance send fa
 
 Future-version/root-corrupt documents deliberately remain read-only to prevent destructive overwrite. Add a user-confirmed export/reset flow that first preserves the raw document for diagnosis, then writes known defaults. Never silently reset on load.
 
-#### 12. Investigate genuine cancellation only if Obsidian adds support
+#### 12. Investigate genuine provider cancellation only if Obsidian adds support
 
-Four permanently hung `requestUrl` calls block the queue. The current API has no supported timeout/AbortSignal. A local `Promise.race` would only stop waiting while the request continued and could create duplicates. Monitor the official API; do not simulate cancellation.
+Four permanently hung `requestUrl` calls still block the provider queue. The current API has no supported timeout/AbortSignal. The consumer adapter's bounded race stops only the consumer's wait, explicitly returns unknown, and never authorizes a retry; it does not free a provider slot. Monitor the official API and add genuine cancellation only when the provider transport can support it.
 
 ## Regression matrix for acceptance
 
@@ -175,7 +178,7 @@ Four permanently hung `requestUrl` calls block the queue. The current API has no
 | Privacy | No body/title/topic/credential/raw response/note path in Notice/logs; callback/provider disclosure tested separately |
 | Composer | Single instance, labeled, keyboard submit, no duplicate click, close outcome reported |
 | Mobile | Namespaced standalone layout works without GCM CSS/JS injection |
-| Consumers | Partial batches retain per-item accepted/rejected/unconfirmed state without blind retry |
+| Consumers | Partial batches retain per-item accepted/rejected/unconfirmed/consumer-timeout state without blind retry |
 
 ## Feasibility and release posture
 

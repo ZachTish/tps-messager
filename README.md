@@ -110,6 +110,18 @@ api.sendMessage(body, file?, title?)     // legacy Promise<void>
 api.dryRunMessage(body, file?, title?)   // deprecated raw request
 ```
 
+Suite consumers no longer need private registry discovery for v2. Notifier publishes the same frozen API descriptor through the public Obsidian Workspace event surface:
+
+- `tps:notifier-api-request` lets a late-loading consumer supply a synchronous acceptance callback.
+- `tps:notifier-api-available` announces the current descriptor after API exposure.
+- `tps:notifier-api-unavailable` withdraws that exact descriptor during restart or unload.
+
+The generated consumer adapter parses the provider ID, protocol, API version, capabilities, receipts, errors, and service requests into frozen snapshots. Every hostile getter is read at most once, and later routing consumes only normalized fields and captured methods rather than rereading a live event object. Compatibility Boolean guards remain exported, but event boundaries use the snapshot parsers. The adapter clears a cache only for the exact withdrawn descriptor or API, never falls through after an invocation begins, and permanently classifies malformed or ambiguous v2 outcomes as `unknown` for that occurrence. A lifecycle epoch prevents delayed acceptance callbacks and old available/unavailable handlers from repopulating a disposed or restarted client.
+
+Consumer provider waits have a 60-second default deadline, configurable from 1 millisecond through 5 minutes in the generated client's optional third constructor argument. Expiry returns `state: "unknown"`, `evidence: "consumer-timeout"`, `attempted: "unknown"`, and the selected v1/v2 transport. It never falls through or retries that occurrence. This is an observation deadline only: the underlying provider call may still finish because neither the legacy API nor Obsidian `requestUrl` supports cancellation.
+
+During the consumers-first BRAT transition, the adapter contains one explicit compatibility exception: when no v2 event provider exists, it reads only the old plugin's `plugin.api`, captures one legacy method, maps resolve to `legacy-accepted`, and maps every rejection to `unknown`. It never falls back to arbitrary plugin-instance methods. The compatibility lookup is removed after every device runs v2.
+
 Cached methods fail closed permanently after unload, including after a same-instance reload; consumers must resolve the current API again. Structured v2 calls reject unknown request fields and blank/whitespace-only bodies. The two legacy send methods remain for compatibility, preserve their argument order and historical empty-body placeholder, and now reject unconfirmed delivery instead of treating an arbitrary 2xx response as accepted. Consumers should migrate to `apiVersion === 2`, `send()`, and structural error fields before this branch is promoted.
 
 `stableSequenceIds` is deliberately `false`. ntfy sequence IDs update/replace notifications; they are not a general exact-once publishing guarantee. No automatic retry exists until caller correlation and partial-batch accounting are designed across the suite.
@@ -127,12 +139,13 @@ Cached methods fail closed permanently after unload, including after a same-inst
 ## Known limitations
 
 - No first-class ntfy username/password or access-token setting. Do not embed credentials in the server URL.
-- Obsidian `requestUrl` exposes no supported timeout or abort signal. If all four active requests hang, queued delivery waits. A fake `Promise.race` timeout would misreport an in-flight request and invite duplicate sends, so none is used.
+- Obsidian `requestUrl` exposes no supported timeout or abort signal. If all four active provider requests hang, Notifier's internal delivery pool remains blocked.
+- The consumer adapter's bounded observation deadline does not cancel provider I/O. It deliberately reports `consumer-timeout` as unknown and prohibits same-occurrence fallback; callers must durably retain that uncertainty and must not automatically resend.
 - ntfy itself does not provide an exact-once guarantee for this workflow. `unconfirmed` must remain a real state.
 - A reverse proxy must preserve the standard ntfy JSON message receipt. A stripped or rewritten 2xx body is intentionally `unconfirmed`.
 - `dryRunMessage()` returns a sensitive raw request and remains only for compatibility. New code should use `validate()`.
 - There is no per-message UI ledger or cross-restart reconciliation yet. Provider acceptance can be proved for a returned receipt, but exact-once delivery cannot be guaranteed after a lost response or crash.
-- Existing Controller, AI Gateway, and Watchlist optimization consumers still require a coordinated API-v2 migration; see `Audit.md`.
+- The optimization copies of Watchlist, AI Gateway completion delivery, and Controller hourly time-tracking now use the synchronized v2 client with durable outcome accounting. Controller's general reminder batches intentionally remain on their legacy path until they have stable per-occurrence identities and a reviewed batch-settlement policy; see `Audit.md`.
 - Each repository build currently imports the adjacent workspace deployment helper and is not standalone-buildable in GitHub Actions.
 
 ## Source layout
@@ -153,6 +166,8 @@ src/
   closable-task-pool.ts      bounded concurrent delivery with FIFO backpressure
   logger.ts                  bounded, privacy-conscious structured diagnostics
   tps-contracts.ts           TPS event compatibility plus Notifier API-v2 types
+  tps-notifier-contract.ts   canonical generated inter-plugin service and result contract
+  tps-notifier-client.ts     v2 event consumer plus isolated transition-only v1 adapter
 ```
 
 Unused private-registry helpers, generic card/list utilities, and the BRAT-ignored `styles-ui.css` were removed from the optimization lane.
@@ -161,9 +176,9 @@ Unused private-registry helpers, generic card/list utilities, and the BRAT-ignor
 
 Current optimization validation is intentionally isolated:
 
-- 69 automated tests pass.
+- 89 automated tests pass.
 - TypeScript strict-null/no-implicit-any typecheck passes.
-- Tests cover official topic/URL boundaries, Unicode/header limits, 4,096-byte bodies, correlated receipts, structured rejection vs ambiguous delivery, response privacy, settings migration/version handling, exact settings-save ownership, immediate queue disposal, unload/overlapping-load races, permanently stale API references, route-generation invalidation, five-way concurrent delivery, strict v2 versus legacy compatibility, protocol paths, settings draft source invariants, modal accessibility/close behavior, and namespaced mobile CSS contracts.
+- Tests cover official topic/URL boundaries, Unicode/header limits, 4,096-byte bodies, correlated receipts, structured rejection vs ambiguous delivery, response privacy, public provider-first/consumer-first discovery, exact-provider withdrawal, single-read hostile descriptor/request/receipt/error snapshots, throwing event listeners, delayed old-epoch callbacks, bounded never-settling v1/v2 providers, v2/v1 route precedence, settings migration/version handling, exact settings-save ownership, immediate queue disposal, unload/overlapping-load races, permanently stale API references, route-generation invalidation, five-way concurrent delivery, strict v2 versus legacy compatibility, protocol paths, settings draft source invariants, modal accessibility/close behavior, and namespaced mobile CSS contracts.
 - `npm test` ends with an isolated production-mode build. Optimization output must report `[runtime-deploy] target=none lane=optimization`.
 - No provider request, Obsidian UI mutation/reload, test-runtime deployment, version bump, tag, GitHub release, or production action belongs to this optimization validation.
 - Composer/settings assertions are synthetic and source-level; rendered desktop/iOS acceptance remains an explicit later gate.

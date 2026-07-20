@@ -13,6 +13,22 @@ export class TFile {
   constructor(path) { this.path = path; }
 }
 globalThis.__tpsTFileClass = TFile;
+class SyntheticWorkspace {
+  constructor() { this.listeners = new Map(); }
+  getLeaf() { return null; }
+  on(name, callback) {
+    const ref = { name, callback };
+    const listeners = this.listeners.get(name) || new Set();
+    listeners.add(ref);
+    this.listeners.set(name, listeners);
+    return ref;
+  }
+  offref(ref) { this.listeners.get(ref.name)?.delete(ref); }
+  trigger(name, ...args) {
+    for (const ref of Array.from(this.listeners.get(name) || [])) ref.callback(...args);
+  }
+}
+globalThis.__tpsWorkspace = new SyntheticWorkspace();
 export class Plugin {
   constructor() {
     this.app = {
@@ -20,13 +36,14 @@ export class Plugin {
         getName: () => 'Synthetic Test Vault',
         getAbstractFileByPath: () => null,
       },
-      workspace: { getLeaf: () => null },
+      workspace: globalThis.__tpsWorkspace,
     };
   }
   async loadData() { return null; }
   async saveData() {}
   addCommand(command) { (this.__commands ||= []).push(command); }
   addSettingTab(tab) { this.__settingTab = tab; }
+  registerEvent(ref) { (this.__events ||= []).push(ref); }
   registerObsidianProtocolHandler(name, callback) { (this.__protocols ||= new Map()).set(name, callback); }
 }
 export class Notice {
@@ -74,6 +91,7 @@ test.after(async () => {
   delete globalThis.__tpsRequestUrl;
   delete globalThis.__tpsNotices;
   delete globalThis.__tpsTFileClass;
+  delete globalThis.__tpsWorkspace;
   await rm(outdir, { recursive: true, force: true });
 });
 
@@ -410,6 +428,86 @@ test('API and settings exposure cannot be replaced or mutated', async () => {
   plugin.onunload();
   assert.equal(plugin.api, undefined);
   assert.throws(() => api.validate({ body: 'cached API' }), (error) => error.code === 'not-ready');
+});
+
+test('public Workspace handshake announces, answers late requests, and withdraws the exact API', async () => {
+  const workspace = globalThis.__tpsWorkspace;
+  let available;
+  let unavailable;
+  const availableRef = workspace.on('tps:notifier-api-available', (descriptor) => { available = descriptor; });
+  const unavailableRef = workspace.on('tps:notifier-api-unavailable', (descriptor) => { unavailable = descriptor; });
+  const plugin = await loadPlugin();
+
+  assert.equal(available.protocolVersion, 1);
+  assert.equal(available.providerPluginId, 'tps-messager');
+  assert.equal(available.api, plugin.api);
+  assert.equal(Object.isFrozen(available), true);
+
+  let requested;
+  workspace.trigger('tps:notifier-api-request', {
+    protocolVersion: 1,
+    consumerPluginId: 'late-test-consumer',
+    accept: (descriptor) => { requested = descriptor; },
+  });
+  assert.equal(requested, available);
+
+  plugin.onunload();
+  assert.equal(unavailable, available);
+  let acceptedAfterUnload = false;
+  workspace.trigger('tps:notifier-api-request', {
+    protocolVersion: 1,
+    consumerPluginId: 'late-test-consumer',
+    accept: () => { acceptedAfterUnload = true; },
+  });
+  assert.equal(acceptedAfterUnload, false);
+  workspace.offref(availableRef);
+  workspace.offref(unavailableRef);
+});
+
+test('misbehaving service consumers cannot fail provider load or later requests', async () => {
+  const workspace = globalThis.__tpsWorkspace;
+  const throwingAvailableRef = workspace.on('tps:notifier-api-available', () => {
+    throw new Error('consumer available handler failed');
+  });
+  const plugin = await loadPlugin();
+  workspace.offref(throwingAvailableRef);
+  assert.equal(plugin.api.apiVersion, 2);
+
+  workspace.trigger('tps:notifier-api-request', {
+    protocolVersion: 1,
+    consumerPluginId: 'throwing-consumer',
+    accept: () => { throw new Error('consumer accept failed'); },
+  });
+  assert.doesNotThrow(() => workspace.trigger('tps:notifier-api-request', new Proxy({}, {
+    get: () => { throw new Error('hostile request getter'); },
+  })));
+  const requestReads = new Map();
+  let snapshotDescriptor;
+  const requestValues = {
+    protocolVersion: 1,
+    consumerPluginId: 'shape-shifting-consumer',
+    accept: (value) => { snapshotDescriptor = value; },
+  };
+  const shapeShiftingRequest = new Proxy({}, {
+    get(_target, key) {
+      if (!(key in requestValues)) return undefined;
+      const count = (requestReads.get(key) || 0) + 1;
+      requestReads.set(key, count);
+      if (count > 1) throw new Error(`request ${String(key)} re-read`);
+      return requestValues[key];
+    },
+  });
+  assert.doesNotThrow(() => workspace.trigger('tps:notifier-api-request', shapeShiftingRequest));
+  assert.equal(snapshotDescriptor.api, plugin.api);
+  for (const count of requestReads.values()) assert.equal(count, 1);
+  let descriptor;
+  workspace.trigger('tps:notifier-api-request', {
+    protocolVersion: 1,
+    consumerPluginId: 'healthy-consumer',
+    accept: (value) => { descriptor = value; },
+  });
+  assert.equal(descriptor.api, plugin.api);
+  plugin.onunload();
 });
 
 test('UI lifecycle tokens remain stale after reload while an old network call returns normally', async () => {

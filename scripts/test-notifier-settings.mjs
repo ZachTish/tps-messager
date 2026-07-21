@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { build } from 'esbuild';
 
 let migrationModule;
@@ -72,4 +73,58 @@ test('falls back to defaults for malformed persisted values', async () => {
   assert.equal(settings.ntfyTopic, '');
   assert.equal(settings.ntfyPriority, 3);
   assert.equal(settings.enableLogging, false);
+});
+
+test('preserves extension settings and never downgrades a future schema', async () => {
+  const { isFutureNotifierSettings, sanitizeNotifierSettings } = await loadMigrationModule();
+  const current = sanitizeNotifierSettings({
+    settingsVersion: 1,
+    enabled: true,
+    extensionOwnedSetting: { nested: ['keep-me'] },
+  });
+  assert.deepEqual(current.extensionOwnedSetting, { nested: ['keep-me'] });
+
+  const future = sanitizeNotifierSettings({
+    settingsVersion: 9,
+    enabled: true,
+    futureOnlySetting: { mode: 'new' },
+  });
+  assert.equal(isFutureNotifierSettings(future), true);
+  assert.equal(future.settingsVersion, 9);
+  assert.deepEqual(future.futureOnlySetting, { mode: 'new' });
+});
+
+test('merges only intended local edits over externally updated settings', async () => {
+  const { changedNotifierSettingsKeys, mergeNotifierSettingsChanges, sanitizeNotifierSettings } = await loadMigrationModule();
+  const baseline = sanitizeNotifierSettings({
+    settingsVersion: 1,
+    ntfyServer: 'https://old.example',
+    ntfyTopic: 'old-topic',
+  });
+  const local = sanitizeNotifierSettings({ ...baseline, ntfyTopic: 'local-topic' });
+  const latest = {
+    settingsVersion: 1,
+    ntfyServer: 'https://synced.example',
+    ntfyTopic: 'old-topic',
+    extensionOwnedSetting: { preserved: true },
+  };
+  const merged = mergeNotifierSettingsChanges(latest, local, changedNotifierSettingsKeys(baseline, local));
+  assert.equal(merged.ntfyServer, 'https://synced.example');
+  assert.equal(merged.ntfyTopic, 'local-topic');
+  assert.deepEqual(merged.extensionOwnedSetting, { preserved: true });
+});
+
+test('settings persistence fails closed after a read failure and text edits use durable saves', () => {
+  const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const settingsTabSource = readFileSync(new URL('../src/settings-tab.ts', import.meta.url), 'utf8');
+  const loadFailure = mainSource.slice(mainSource.indexOf("logger.flowError('Settings', 'load:failed'"), mainSource.indexOf('async saveSettings()'));
+  const saveSettings = mainSource.slice(mainSource.indexOf('async saveSettings()'), mainSource.indexOf('log(message: string'));
+
+  assert.match(loadFailure, /this\.settingsPersistenceBlocked = true/);
+  assert.match(loadFailure, /this\.settingsPersistenceBlockedReason = 'load-failed'/);
+  assert.match(saveSettings, /if \(this\.settingsPersistenceBlocked\) \{\s*this\.notifySettingsPersistenceBlocked\(\);\s*return;/);
+  assert.match(saveSettings, /latestStored = await this\.loadData\(\)/);
+  assert.doesNotMatch(settingsTabSource, /\bdebounce\b|debouncedSave/);
+  assert.match(settingsTabSource, /this\.plugin\.settings\.ntfyServer = value;\s*await this\.plugin\.saveSettings\(\)/);
+  assert.match(settingsTabSource, /this\.plugin\.settings\.ntfyTopic = value;\s*await this\.plugin\.saveSettings\(\)/);
 });

@@ -5,7 +5,7 @@ import { TPSNotifierSettingTab } from './settings-tab';
 import { buildNtfyUrl } from './ntfy-url';
 import { prepareNotifierRequest, type PreparedNotifierRequest } from './ntfy-request';
 import { submitManualComposerNotification } from './manual-composer';
-import { DEFAULT_SETTINGS, sanitizeNotifierSettings } from './settings-migration';
+import { changedNotifierSettingsKeys, DEFAULT_SETTINGS, isFutureNotifierSettings, mergeNotifierSettingsChanges, sanitizeNotifierSettings } from './settings-migration';
 import { normalizeNotifierProtocolPath, sanitizeNotifierDeliveryError, summarizeNotifierTarget } from './notifier-safety';
 
 // ============================================================================
@@ -16,6 +16,10 @@ export default class TPSNotifier extends Plugin {
     settings: TPSNotifierSettings;
     private settingsSavePromise: Promise<void> | null = null;
     private settingsSavePending = false;
+    private lastSavedSettingsSnapshot: TPSNotifierSettings | null = null;
+    private settingsPersistenceBlocked = false;
+    private settingsPersistenceBlockedReason: 'load-failed' | 'future-schema' | null = null;
+    private settingsPersistenceBlockedNoticeShown = false;
 
     async onload() {
         logger.flow('Plugin', 'load:start');
@@ -87,49 +91,106 @@ export default class TPSNotifier extends Plugin {
         try {
             const data = await this.loadData();
             this.settings = sanitizeNotifierSettings(data);
-
-            if (this.settings.enableLogging) {
-                logger.setLoggingEnabled(true);
+            this.lastSavedSettingsSnapshot = cloneNotifierSettings(this.settings);
+            this.settingsPersistenceBlocked = isFutureNotifierSettings(data);
+            this.settingsPersistenceBlockedReason = this.settingsPersistenceBlocked ? 'future-schema' : null;
+            logger.setLoggingEnabled(this.settings.enableLogging);
+            if (this.settingsPersistenceBlocked) {
+                logger.flowWarn('Settings', 'future-schema:read-only', { settingsVersion: this.settings.settingsVersion });
+                new Notice('TPS Notifier settings were written by a newer plugin version. This version will not overwrite them.', 12000);
             }
         } catch (e) {
             logger.flowError('Settings', 'load:failed', e);
             this.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+            this.lastSavedSettingsSnapshot = null;
+            this.settingsPersistenceBlocked = true;
+            this.settingsPersistenceBlockedReason = 'load-failed';
+            logger.setLoggingEnabled(false);
+            new Notice('TPS Notifier could not safely read its settings. Saving is disabled until the plugin reloads successfully.', 12000);
         }
     }
 
     async saveSettings() {
         this.settings = sanitizeNotifierSettings(this.settings);
         logger.setLoggingEnabled(this.settings.enableLogging);
+        if (this.settingsPersistenceBlocked) {
+            this.notifySettingsPersistenceBlocked();
+            return;
+        }
+        this.settingsSavePending = true;
         if (this.settingsSavePromise) {
-            this.settingsSavePending = true;
             logger.flow('Settings', 'save:queued');
             await this.settingsSavePromise;
             return;
         }
 
-        do {
+        const operation = Promise.resolve().then(() => this.flushSettingsSaveQueue());
+        this.settingsSavePromise = operation;
+        await operation;
+    }
+
+    private async flushSettingsSaveQueue(): Promise<void> {
+      try {
+        while (this.settingsSavePending && !this.settingsPersistenceBlocked) {
             this.settingsSavePending = false;
-            const snapshot = JSON.parse(JSON.stringify(this.settings));
-            logger.flow('Settings', 'save:start', {
-                enabled: snapshot.enabled === true,
-                manualComposer: snapshot.enableManualComposer ?? true,
-                hasTopic: !!String(snapshot.ntfyTopic || '').trim(),
-                priority: snapshot.ntfyPriority,
-            });
-            this.settingsSavePromise = this.saveData(snapshot);
+            const localSnapshot = cloneNotifierSettings(this.settings);
+            const changedKeys = changedNotifierSettingsKeys(this.lastSavedSettingsSnapshot, localSnapshot);
+            if (!changedKeys.length) continue;
+            let latestStored: unknown;
             try {
-                await this.settingsSavePromise;
-                logger.flow('Settings', 'save:done');
+                latestStored = await this.loadData();
+            } catch (error) {
+                logger.flowError('Settings', 'save:read-latest-failed', error);
+                this.settingsPersistenceBlocked = true;
+                this.settingsPersistenceBlockedReason = 'load-failed';
+                this.notifySettingsPersistenceBlocked();
+                return;
+            }
+            if (isFutureNotifierSettings(latestStored)) {
+                this.settingsPersistenceBlocked = true;
+                this.settingsPersistenceBlockedReason = 'future-schema';
+                logger.flowWarn('Settings', 'save:blocked-future-schema');
+                this.notifySettingsPersistenceBlocked();
+                return;
+            }
+            const persistencePayload = mergeNotifierSettingsChanges(latestStored, localSnapshot, changedKeys);
+            logger.flow('Settings', 'save:start', {
+                changedKeys,
+                enabled: persistencePayload.enabled === true,
+                manualComposer: persistencePayload.enableManualComposer ?? true,
+                hasTopic: !!String(persistencePayload.ntfyTopic || '').trim(),
+                priority: persistencePayload.ntfyPriority,
+            });
+            try {
+                await this.saveData(persistencePayload);
+                const mutationsDuringSave = changedNotifierSettingsKeys(localSnapshot, this.settings);
+                this.lastSavedSettingsSnapshot = cloneNotifierSettings(persistencePayload);
+                this.settings = mutationsDuringSave.length
+                    ? mergeNotifierSettingsChanges(persistencePayload, this.settings, mutationsDuringSave)
+                    : sanitizeNotifierSettings(persistencePayload);
+                logger.setLoggingEnabled(this.settings.enableLogging);
+                logger.flow('Settings', 'save:done', { changedKeys });
             } catch (error) {
                 logger.flowError('Settings', 'save:failed', error, {
-                    enabled: snapshot.enabled === true,
-                    hasTopic: !!String(snapshot.ntfyTopic || '').trim(),
+                    enabled: localSnapshot.enabled === true,
+                    hasTopic: !!String(localSnapshot.ntfyTopic || '').trim(),
                 });
                 throw error;
-            } finally {
-                this.settingsSavePromise = null;
             }
-        } while (this.settingsSavePending);
+        }
+      } finally {
+        this.settingsSavePromise = null;
+      }
+    }
+
+    private notifySettingsPersistenceBlocked(): void {
+        logger.flowWarn('Settings', 'save:blocked', { reason: this.settingsPersistenceBlockedReason || 'unknown' });
+        if (this.settingsPersistenceBlockedNoticeShown) return;
+        this.settingsPersistenceBlockedNoticeShown = true;
+        const message = this.settingsPersistenceBlockedReason === 'future-schema'
+            ? 'TPS Notifier did not save because this vault contains settings from a newer TPS Notifier version. Update this device first.'
+            : 'TPS Notifier did not save because its settings could not be read safely. Reload the plugin and try again.';
+        new Notice(message, 12000);
     }
 
     log(message: string, ...args: any[]) {
@@ -364,4 +425,8 @@ export default class TPSNotifier extends Plugin {
 
         modal.open();
     }
+}
+
+function cloneNotifierSettings(settings: TPSNotifierSettings): TPSNotifierSettings {
+    return JSON.parse(JSON.stringify(settings));
 }

@@ -1,6 +1,6 @@
 {
     "name": "tps-messager",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Push notification delivery transport for the TPS suite via ntfy.",
     "main": "main.js",
     "scripts": {

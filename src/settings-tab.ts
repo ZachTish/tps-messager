@@ -1,4 +1,4 @@
-﻿import { App, Notice, PluginSettingTab, Setting, debounce } from 'obsidian';
+﻿import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type TPSNotifier from './main';
 import { getManualComposerFailureMessage } from './manual-composer';
 import * as logger from './logger';
@@ -44,8 +44,6 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
         this.captureSettingsViewState(containerEl);
         containerEl.empty();
 
-        const debouncedSave = debounce(() => this.plugin.saveSettings(), 300);
-
         containerEl.createEl('h2', { text: 'TPS Notifier Settings' });
         containerEl.createEl('p', {
             text: 'Keep this plugin focused on transport settings. TPS Controller can use it for reminder delivery once connection is configured.',
@@ -77,9 +75,9 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                 .addText(text => text
                     .setPlaceholder('https://ntfy.sh')
                     .setValue(this.plugin.settings.ntfyServer)
-                    .onChange((value) => {
+                    .onChange(async (value) => {
                         this.plugin.settings.ntfyServer = value;
-                        void debouncedSave();
+                        await this.plugin.saveSettings();
                     }));
 
             new Setting(connection)
@@ -88,9 +86,9 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                 .addText(text => text
                     .setPlaceholder('my-reminders')
                     .setValue(this.plugin.settings.ntfyTopic)
-                    .onChange((value) => {
+                    .onChange(async (value) => {
                         this.plugin.settings.ntfyTopic = value;
-                        void debouncedSave();
+                        await this.plugin.saveSettings();
                     }));
 
             new Setting(connection)

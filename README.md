@@ -1,5 +1,11 @@
 # TPS Notifier
 
+## 1.0.1
+
+- Settings saves reload the newest data and merge only locally changed fields, preserving synchronized preferences and unknown newer-release fields.
+- A higher settings schema stays read-only, and a failed settings read blocks writes instead of replacing valid configuration with defaults. Server and topic edits now await persistence directly rather than relying on an unload-unsafe timer.
+- This backward-compatible patch keeps the minimum supported Obsidian version at 1.10.0 and requires no manual migration.
+
 ## Development and deployment
 
 Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtisherman/TishOS Plugin Development/tps-messager`, outside both vaults. `npm run build` and watch builds deploy byte-changed runtime artifacts by default only to `/Users/zachtisherman/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian Plugin Test Vault/.obsidian/plugins/tps-messager`; `npm test` is therefore isolated even though it ends with a production-mode build. Promotion to `/Users/zachtisherman/TishOS v0.1/.obsidian/plugins/tps-messager` is an explicit guarded post-validation action. Neither target overwrites `data.json` or other runtime-owned state.
@@ -8,7 +14,7 @@ Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtish
 
 ## Install with BRAT
 
-Add the private repository `ZachTish/tps-messager` to BRAT and select **Latest** tracking so BRAT follows the newest GitHub release. For private-repository access, give BRAT a fine-grained GitHub token scoped to this repository with **Contents: Read-only** permission. Never commit the token to this repository, an Obsidian vault, or any synced note.
+Add the public repository `ZachTish/tps-messager` to BRAT and select **Latest** so BRAT follows numbered releases without a private-repository token. Freeze a numeric version when a device should remain pinned.
 
 ## Mobile modal contract
 
@@ -70,6 +76,8 @@ Obsidian passes protocol query values to handlers already decoded. Notifier vali
 ## Settings
 
 Settings use direct collapsible sections with descriptive titles for the ntfy delivery toggle, server/topic/priority, manual composer/logging, and test notification controls.
+
+Persistence is serialized and read/merge/write safe. Each edit reloads the latest plugin data and applies only values changed in the current Notifier instance, preserving settings synced from another device and unknown extension/newer-release fields. A higher `settingsVersion` remains read-only instead of being downgraded. If the plugin cannot read `data.json`, it may use defaults for the current session but blocks all settings writes until a successful reload, so a temporary iCloud/read failure cannot replace valid configuration with defaults. Server and topic edits await the same durable save queue on every change; they are not left in a settings-tab debounce timer.
 
 - `Enable delivery transport`: master outbound delivery toggle. Default: `off` on fresh installs.
 - `ntfy Server`: base server URL such as `https://ntfy.sh`. Default: `https://ntfy.sh`.

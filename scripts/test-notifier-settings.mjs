@@ -114,6 +114,23 @@ test('merges only intended local edits over externally updated settings', async 
   assert.deepEqual(merged.extensionOwnedSetting, { preserved: true });
 });
 
+test('an uncertain Notifier write forces a same-as-baseline revert', async () => {
+  const { mergeNotifierSettingsChanges, sanitizeNotifierSettings } = await loadMigrationModule();
+  const baseline = sanitizeNotifierSettings({ ntfyTopic: 'old-topic', ntfyServer: 'https://old.example' });
+  const first = sanitizeNotifierSettings({ ...baseline, ntfyTopic: 'new-topic' });
+  // Model a provider error reported after the write reached disk.
+  const uncertainDisk = mergeNotifierSettingsChanges(baseline, first, ['ntfyTopic']);
+  const reverted = sanitizeNotifierSettings({ ...baseline, ntfyTopic: 'old-topic' });
+  const repaired = mergeNotifierSettingsChanges(uncertainDisk, reverted, ['ntfyTopic']);
+  assert.equal(repaired.ntfyTopic, 'old-topic');
+  assert.equal(repaired.ntfyServer, 'https://old.example');
+
+  const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(mainSource, /uncertainSettingsSaveKeys/);
+  assert.match(mainSource, /for \(const key of changedKeys\) this\.uncertainSettingsSaveKeys\.add\(key\)/);
+  assert.match(mainSource, /if \(!this\.settingsSavePending\) throw error/);
+});
+
 test('settings persistence fails closed after a read failure and text edits use durable saves', () => {
   const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
   const settingsTabSource = readFileSync(new URL('../src/settings-tab.ts', import.meta.url), 'utf8');

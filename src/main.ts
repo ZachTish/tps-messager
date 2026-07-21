@@ -16,6 +16,7 @@ export default class TPSNotifier extends Plugin {
     settings: TPSNotifierSettings;
     private settingsSavePromise: Promise<void> | null = null;
     private settingsSavePending = false;
+    private readonly uncertainSettingsSaveKeys = new Set<string>();
     private lastSavedSettingsSnapshot: TPSNotifierSettings | null = null;
     private settingsPersistenceBlocked = false;
     private settingsPersistenceBlockedReason: 'load-failed' | 'future-schema' | null = null;
@@ -135,6 +136,9 @@ export default class TPSNotifier extends Plugin {
             this.settingsSavePending = false;
             const localSnapshot = cloneNotifierSettings(this.settings);
             const changedKeys = changedNotifierSettingsKeys(this.lastSavedSettingsSnapshot, localSnapshot);
+            for (const key of this.uncertainSettingsSaveKeys) {
+                if (!changedKeys.includes(key)) changedKeys.push(key);
+            }
             if (!changedKeys.length) continue;
             let latestStored: unknown;
             try {
@@ -165,17 +169,19 @@ export default class TPSNotifier extends Plugin {
                 await this.saveData(persistencePayload);
                 const mutationsDuringSave = changedNotifierSettingsKeys(localSnapshot, this.settings);
                 this.lastSavedSettingsSnapshot = cloneNotifierSettings(persistencePayload);
+                for (const key of changedKeys) this.uncertainSettingsSaveKeys.delete(key);
                 this.settings = mutationsDuringSave.length
                     ? mergeNotifierSettingsChanges(persistencePayload, this.settings, mutationsDuringSave)
                     : sanitizeNotifierSettings(persistencePayload);
                 logger.setLoggingEnabled(this.settings.enableLogging);
                 logger.flow('Settings', 'save:done', { changedKeys });
             } catch (error) {
+                for (const key of changedKeys) this.uncertainSettingsSaveKeys.add(key);
                 logger.flowError('Settings', 'save:failed', error, {
                     enabled: localSnapshot.enabled === true,
                     hasTopic: !!String(localSnapshot.ntfyTopic || '').trim(),
                 });
-                throw error;
+                if (!this.settingsSavePending) throw error;
             }
         }
       } finally {

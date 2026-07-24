@@ -1,6 +1,114 @@
 /* TPS Notifier - UI Shared Styles */
 
 /* ============================================================================
+   Settings destinations
+   ============================================================================ */
+
+.tps-notifier-settings-hub {
+  position: sticky;
+  top: -1px;
+  z-index: 2;
+  margin: 16px 0 20px;
+  padding: 12px 0;
+  background: var(--background-primary);
+}
+
+.tps-notifier-settings-hub > h3 {
+  margin: 0 0 4px;
+}
+
+.tps-notifier-settings-routes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tps-notifier-settings-route {
+  height: auto;
+  min-height: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  text-align: left;
+  white-space: normal;
+}
+
+.tps-notifier-settings-route:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.tps-notifier-settings-route:focus-visible,
+.tps-notifier-settings-page > h3:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.tps-notifier-settings-route.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tps-notifier-settings-route-title,
+.tps-notifier-settings-route-description {
+  display: block;
+}
+
+.tps-notifier-settings-route-title {
+  font-weight: var(--font-semibold);
+}
+
+.tps-notifier-settings-route-description {
+  margin-top: 3px;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.35;
+  opacity: 0.82;
+}
+
+.tps-notifier-settings-page {
+  margin-bottom: 24px;
+}
+
+.tps-notifier-settings-page > h3 {
+  margin-bottom: 4px;
+  scroll-margin-top: 110px;
+}
+
+.tps-notifier-settings-page-description {
+  margin: 0 0 12px;
+}
+
+@media (max-width: 700px) {
+  .tps-notifier-settings-routes {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+  }
+
+  .tps-notifier-settings-route {
+    flex: 0 0 min(78vw, 260px);
+    min-height: auto;
+  }
+
+  .tps-notifier-settings-page .setting-item {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tps-notifier-settings-page .setting-item-control {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+/* ============================================================================
    Collapsible Sections
    ============================================================================ */
 

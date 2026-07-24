@@ -1,16 +1,17 @@
 # TPS Notifier
 
-## 1.0.1
+## 1.1.0
 
-- Settings saves reload the newest data and merge only locally changed fields, preserving synchronized preferences and unknown newer-release fields.
-- A higher settings schema stays read-only, and a failed settings read blocks writes instead of replacing valid configuration with defaults. Server and topic edits now await persistence directly rather than relying on an unload-unsafe timer.
-- This backward-compatible patch keeps the minimum supported Obsidian version at 1.10.0 and requires no manual migration.
+- Settings now use three clean destinations for delivery, the manual composer, and diagnostics, rendering only the selected page.
+- Conditional transport and composer controls retain the active destination, useful scroll context, and keyboard focus; mobile uses a compact horizontal destination strip.
+- Existing ntfy, composer, logging, and safety settings are unchanged. This backward-compatible minor release keeps the minimum supported Obsidian version at 1.10.0 and requires no migration.
 
 ## Development and deployment
 
 Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtisherman/TishOS Plugin Development/tps-messager`, outside both vaults. `npm run build` and watch builds deploy byte-changed runtime artifacts by default only to `/Users/zachtisherman/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian Plugin Test Vault/.obsidian/plugins/tps-messager`; `npm test` is therefore isolated even though it ends with a production-mode build. Promotion to `/Users/zachtisherman/TishOS v0.1/.obsidian/plugins/tps-messager` is an explicit guarded post-validation action. Neither target overwrites `data.json` or other runtime-owned state.
 
 - 2026-07-16 isolation validation: all 21 declared tests and the required final `npm run build` passed with `[runtime-deploy] target=test ... unchanged`. Obsidian 1.12.7 loaded Notifier disabled in the registered test vault, with no copied topic and no outbound notification. No live promotion occurred, and production runtime checksums remained unchanged.
+- 2026-07-24 settings-release validation: all 26 contract, persistence, routed-settings, composer, and safety tests passed. The required final standalone build deployed only to `[runtime-deploy] target=test`. Obsidian 1.12.7 was reloaded with `Reload app without saving`; all three settings destinations and the shared nine-plugin `Choose what to configure` pattern were inspected in the registered test vault with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent and production was not accessed or promoted.
 
 ## Install with BRAT
 
@@ -75,7 +76,7 @@ Obsidian passes protocol query values to handlers already decoded. Notifier vali
 
 ## Settings
 
-Settings use direct collapsible sections with descriptive titles for the ntfy delivery toggle, server/topic/priority, manual composer/logging, and test notification controls.
+Settings use a shallow destination hub for delivery transport, the manual composer, and diagnostics. Only the selected destination is rendered, so connection fields and test actions remain easy to find without nested disclosures.
 
 Persistence is serialized and read/merge/write safe. Each edit reloads the latest plugin data and applies only values changed in the current Notifier instance, preserving settings synced from another device and unknown extension/newer-release fields. A higher `settingsVersion` remains read-only instead of being downgraded. If the plugin cannot read `data.json`, it may use defaults for the current session but blocks all settings writes until a successful reload, so a temporary iCloud/read failure cannot replace valid configuration with defaults. Server and topic edits await the same durable save queue on every change; they are not left in a settings-tab debounce timer.
 
@@ -147,8 +148,20 @@ The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps
   - already-decoded protocol paths preserve literal percent characters and reject traversal/absolute paths
   - delivery diagnostics redact ntfy topics, URL credentials, full targets, and custom title text
 
+## Version notes
+
+- 1.1.0: Reorganized settings into a shallow accessible destination hub, removed nested settings disclosures, and added conditional focus restoration plus mobile-safe controls without changing delivery behavior or data.
+- 1.0.1: Made settings persistence merge local intent into the newest data, preserve unknown fields, fail closed after read errors, and durably save server/topic edits without an unload-unsafe timer.
+- 1.0.0: Established the transport-only TPS Notifier contract with ntfy delivery, manual composer, dry-run diagnostics, safe protocol links, and Controller integration.
+
 ## Settings layout
 
-The delivery toggle, ntfy server, topic, and priority are root-level core controls. Manual composer, logging, dry-run, and delivery testing are optional collapsed controls; the test-send subsection is the second and final collapse level. A fresh settings open closes every optional section.
+Settings open on three destinations:
+
+- **Delivery** (default): the transport toggle and, when enabled, ntfy server, topic, and priority.
+- **Composer**: the manual composer command toggle and the test-send action when both transport and composer are enabled.
+- **Diagnostics**: privacy-safe logging and the no-network dry-run action.
+
+The route selection is transient and does not alter persisted settings. Conditional delivery/composer refreshes retain the active destination, scroll position, and keyboard focus. Native `aria-pressed` buttons and visible focus styling support keyboard and assistive use; narrow screens switch to a horizontal route strip and stacked, full-width controls. There are no nested settings disclosures, and the existing fail-closed delivery/test-send safety gates are unchanged.
 
 - 2026-07-13: Promoted transport configuration to the root, nested the optional test sender under diagnostics, and enforced a fully collapsed first-open state with a maximum depth of two. Validation: settings hierarchy audit, full test suite, production build/deploy, and Obsidian reload.

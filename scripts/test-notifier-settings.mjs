@@ -145,3 +145,43 @@ test('settings persistence fails closed after a read failure and text edits use 
   assert.match(settingsTabSource, /this\.plugin\.settings\.ntfyServer = value;\s*await this\.plugin\.saveSettings\(\)/);
   assert.match(settingsTabSource, /this\.plugin\.settings\.ntfyTopic = value;\s*await this\.plugin\.saveSettings\(\)/);
 });
+
+test('settings use a shallow three-destination routed hub without losing controls', () => {
+  const settingsTabSource = readFileSync(new URL('../src/settings-tab.ts', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+  const uiStyles = readFileSync(new URL('../styles-ui.css', import.meta.url), 'utf8');
+
+  for (const route of ['Delivery', 'Composer', 'Diagnostics']) {
+    assert.match(settingsTabSource, new RegExp(`title: '${route}'`));
+  }
+  for (const control of [
+    'Enable delivery transport',
+    'ntfy Server',
+    'ntfy Topic',
+    'Priority',
+    'Enable manual composer command',
+    'Send Test Notification',
+    'Enable Logging',
+    'Dry Run Delivery Setup',
+  ]) {
+    assert.match(settingsTabSource, new RegExp(`setName\\('${control}'\\)`));
+  }
+
+  assert.match(settingsTabSource, /private activeRoute: NotifierSettingsRoute = 'delivery'/);
+  assert.match(settingsTabSource, /'aria-pressed': String\(isActive\)/);
+  assert.match(settingsTabSource, /pageHeading\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(settingsTabSource, /pageHeading\.scrollIntoView\(\{ block: 'start' \}\)/);
+  assert.match(settingsTabSource, /activeRouteButton\?\.scrollIntoView\(\{ block: 'nearest', inline: 'nearest' \}\)/);
+  assert.match(settingsTabSource, /this\.renderSettings\(false, 'Enable delivery transport'\)/);
+  assert.match(settingsTabSource, /this\.renderSettings\(false, 'Enable manual composer command'\)/);
+  assert.doesNotMatch(settingsTabSource, /createCollapsibleSection|createEl\('details'/);
+
+  for (const stylesheet of [styles, uiStyles]) {
+    assert.match(stylesheet, /\.tps-notifier-settings-hub\s*\{[^}]*position:\s*sticky/s);
+    assert.match(stylesheet, /\.tps-notifier-settings-route:focus-visible/);
+    assert.match(stylesheet, /@media \(max-width: 700px\)/);
+    assert.match(stylesheet, /\.tps-notifier-settings-routes\s*\{[^}]*overflow-x:\s*auto/s);
+    assert.match(stylesheet, /\.tps-notifier-settings-route\s*\{[^}]*height:\s*auto/s);
+    assert.match(stylesheet, /\.tps-notifier-settings-page > h3\s*\{[^}]*scroll-margin-top:/s);
+  }
+});

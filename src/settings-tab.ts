@@ -4,35 +4,33 @@ import { getManualComposerFailureMessage } from './manual-composer';
 import * as logger from './logger';
 import { summarizeNotifierTarget } from './notifier-safety';
 
-const createCollapsibleSection = (
-    parent: HTMLElement,
-    title: string,
-    description?: string,
-    defaultOpen = false
-): HTMLElement => {
-    const details = parent.createEl('details', { cls: 'tps-collapsible-section' });
-    if (defaultOpen) {
-        details.setAttr('open', 'true');
-    }
+type NotifierSettingsRoute = 'delivery' | 'composer' | 'diagnostics';
 
-    const summary = details.createEl('summary', { cls: 'tps-collapsible-section-summary' });
-    summary.createSpan({ cls: 'tps-collapsible-section-title', text: title });
-
-    if (description) {
-        details.createEl('p', {
-            cls: 'tps-collapsible-section-description',
-            text: description
-        });
-    }
-
-    return details.createDiv({ cls: 'tps-collapsible-section-content' });
-};
+const NOTIFIER_SETTINGS_ROUTES: Array<{
+    id: NotifierSettingsRoute;
+    title: string;
+    description: string;
+}> = [
+    {
+        id: 'delivery',
+        title: 'Delivery',
+        description: 'Connect ntfy and choose the delivery priority.',
+    },
+    {
+        id: 'composer',
+        title: 'Composer',
+        description: 'Enable manual sends and verify the connection.',
+    },
+    {
+        id: 'diagnostics',
+        title: 'Diagnostics',
+        description: 'Control logging and validate a request without sending it.',
+    },
+];
 
 export class TPSNotifierSettingTab extends PluginSettingTab {
     plugin: TPSNotifier;
-    private settingsViewState = new Map<string, boolean>();
-    private settingsScrollTop = 0;
-    private hasRenderedSettings = false;
+    private activeRoute: NotifierSettingsRoute = 'delivery';
 
     constructor(app: App, plugin: TPSNotifier) {
         super(app, plugin);
@@ -40,8 +38,12 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
     }
 
     display(): void {
+        this.renderSettings();
+    }
+
+    private renderSettings(focusRouteHeading = false, focusControlName?: string): void {
         const { containerEl } = this;
-        this.captureSettingsViewState(containerEl);
+        const scrollTop = containerEl.scrollTop;
         containerEl.empty();
 
         containerEl.createEl('h2', { text: 'TPS Notifier Settings' });
@@ -50,12 +52,79 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
             cls: 'setting-item-description'
         });
 
-        const coreSettings = containerEl.createDiv({ cls: 'tps-settings-core' });
-        new Setting(coreSettings).setName('Core settings').setHeading();
+        const routeHub = containerEl.createDiv({ cls: 'tps-notifier-settings-hub' });
+        routeHub.createEl('h3', { text: 'Choose what to configure' });
+        routeHub.createEl('p', {
+            text: 'Pick one destination. Your other settings stay saved and out of the way.',
+            cls: 'setting-item-description',
+        });
 
-        const delivery = coreSettings;
+        const routeNav = routeHub.createDiv({
+            cls: 'tps-notifier-settings-routes',
+            attr: { role: 'navigation', 'aria-label': 'Notifier settings destinations' },
+        });
+        let activeRouteButton: HTMLButtonElement | null = null;
+        for (const route of NOTIFIER_SETTINGS_ROUTES) {
+            const isActive = route.id === this.activeRoute;
+            const button = routeNav.createEl('button', {
+                cls: `tps-notifier-settings-route${isActive ? ' is-active' : ''}`,
+                attr: {
+                    type: 'button',
+                    'aria-pressed': String(isActive),
+                    'aria-label': `${route.title}: ${route.description}`,
+                },
+            });
+            if (isActive) activeRouteButton = button;
+            button.createSpan({ cls: 'tps-notifier-settings-route-title', text: route.title });
+            button.createSpan({ cls: 'tps-notifier-settings-route-description', text: route.description });
+            button.addEventListener('click', () => {
+                if (this.activeRoute === route.id) return;
+                this.activeRoute = route.id;
+                this.renderSettings(true);
+            });
+        }
 
-        new Setting(delivery)
+        const route = NOTIFIER_SETTINGS_ROUTES.find(({ id }) => id === this.activeRoute)
+            ?? NOTIFIER_SETTINGS_ROUTES[0];
+        const page = containerEl.createDiv({ cls: 'tps-notifier-settings-page' });
+        const pageHeading = page.createEl('h3', {
+            text: route.title,
+            attr: { tabindex: '-1' },
+        });
+        page.createEl('p', {
+            text: route.description,
+            cls: 'setting-item-description tps-notifier-settings-page-description',
+        });
+
+        if (route.id === 'delivery') {
+            this.renderDeliverySettings(page);
+        } else if (route.id === 'composer') {
+            this.renderComposerSettings(page);
+        } else {
+            this.renderDiagnosticsSettings(page);
+        }
+
+        if (!focusRouteHeading) containerEl.scrollTop = scrollTop;
+        if (focusRouteHeading || focusControlName) {
+            requestAnimationFrame(() => {
+                activeRouteButton?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                if (focusControlName) {
+                    const settingItems = Array.from(page.querySelectorAll<HTMLElement>('.setting-item'));
+                    const settingItem = settingItems.find((item) =>
+                        item.querySelector('.setting-item-name')?.textContent?.trim() === focusControlName
+                    );
+                    const control = settingItem?.querySelector<HTMLElement>('input, button, select, textarea');
+                    control?.focus({ preventScroll: true });
+                    return;
+                }
+                pageHeading.focus({ preventScroll: true });
+                pageHeading.scrollIntoView({ block: 'start' });
+            });
+        }
+    }
+
+    private renderDeliverySettings(parent: HTMLElement): void {
+        new Setting(parent)
             .setName('Enable delivery transport')
             .setDesc('Master toggle for outbound notification delivery.')
             .addToggle(toggle => toggle
@@ -63,13 +132,11 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.enabled = value;
                     await this.plugin.saveSettings();
-                    this.display();
+                    this.renderSettings(false, 'Enable delivery transport');
                 }));
 
-        const connection = coreSettings;
-
         if (this.plugin.settings.enabled === true) {
-            new Setting(connection)
+            new Setting(parent)
                 .setName('ntfy Server')
                 .setDesc('The ntfy server URL (e.g., https://ntfy.sh)')
                 .addText(text => text
@@ -80,7 +147,7 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     }));
 
-            new Setting(connection)
+            new Setting(parent)
                 .setName('ntfy Topic')
                 .setDesc('Your unique topic name')
                 .addText(text => text
@@ -91,7 +158,7 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     }));
 
-            new Setting(connection)
+            new Setting(parent)
                 .setName('Priority')
                 .setDesc('Notification priority (1-5)')
                 .addSlider(slider => slider
@@ -103,20 +170,15 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     }));
         } else {
-            connection.createEl('p', {
+            parent.createEl('p', {
                 text: 'Delivery transport is disabled. Enable it above to configure server/topic settings.',
                 cls: 'setting-item-description'
             });
         }
+    }
 
-        const diagnostics = createCollapsibleSection(
-            containerEl,
-            'Manual Composer, Logging, and Delivery Test',
-            'Optional tools for verifying delivery and troubleshooting.',
-            false
-        );
-
-        new Setting(diagnostics)
+    private renderComposerSettings(parent: HTMLElement): void {
+        new Setting(parent)
             .setName('Enable manual composer command')
             .setDesc('Registers the “Send Custom Notification” command in the command palette.')
             .addToggle(toggle => toggle
@@ -124,50 +186,11 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.enableManualComposer = value;
                     await this.plugin.saveSettings();
-                    this.display();
-                }));
-
-        new Setting(diagnostics)
-            .setName('Enable Logging')
-            .setDesc('Log detailed info to console')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.enableLogging)
-                .onChange(async (value) => {
-                    this.plugin.settings.enableLogging = value;
-                    logger.flow('SettingsUI', 'logging-toggle', { enabled: value });
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(diagnostics)
-            .setName('Dry Run Delivery Setup')
-            .setDesc('Validate the ntfy URL, headers, priority, and fallback body without sending a network request.')
-            .addButton(button => button
-                .setButtonText('Dry Run')
-                .onClick(() => {
-                    logger.flow('SettingsUI', 'dry-run:start');
-                    try {
-                        const request = this.plugin.dryRunMessage(
-                            'Dry run notification from TPS Notifier',
-                            undefined,
-                            'TPS Notifier Dry Run',
-                        );
-                        logger.flow('SettingsUI', 'dry-run:done', { ...summarizeNotifierTarget(request.url) });
-                        new Notice(`Dry run prepared: ${request.url}`);
-                    } catch (e) {
-                        logger.flowError('SettingsUI', 'dry-run:failed', e);
-                        new Notice(getManualComposerFailureMessage(e));
-                    }
+                    this.renderSettings(false, 'Enable manual composer command');
                 }));
 
         if (this.plugin.settings.enabled === true && (this.plugin.settings.enableManualComposer ?? true)) {
-            const composer = createCollapsibleSection(
-                diagnostics,
-                'Test Notification',
-                'Command and test payload tooling for manual sends.',
-                false
-            );
-
-            new Setting(composer)
+            new Setting(parent)
                 .setName('Send Test Notification')
                 .setDesc('Send a test notification to verify connection')
                 .addButton(button => button
@@ -187,38 +210,45 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                         button.setButtonText('Send Test');
                         button.setDisabled(false);
                     }));
-        }
-        this.restoreSettingsViewState(containerEl);
-    }
-
-    private captureSettingsViewState(containerEl: HTMLElement): void {
-        this.settingsScrollTop = containerEl.scrollTop;
-        this.settingsViewState.clear();
-        const detailsEls = Array.from(containerEl.querySelectorAll('details'));
-        detailsEls.forEach((detailsEl, index) => {
-            const details = detailsEl as HTMLDetailsElement;
-            const summaryText = details.querySelector('summary')?.textContent?.trim() || '';
-            this.settingsViewState.set(`${index}:${summaryText}`, details.open);
-        });
-    }
-
-    private restoreSettingsViewState(containerEl: HTMLElement): void {
-        const detailsEls = Array.from(containerEl.querySelectorAll('details'));
-        if (!this.hasRenderedSettings) {
-            detailsEls.forEach((detailsEl) => {
-                (detailsEl as HTMLDetailsElement).removeAttribute('open');
+        } else {
+            parent.createEl('p', {
+                text: 'Enable both delivery transport and the manual composer before sending a test notification.',
+                cls: 'setting-item-description',
             });
-            this.hasRenderedSettings = true;
-            containerEl.scrollTop = 0;
-            return;
         }
-        detailsEls.forEach((detailsEl, index) => {
-            const details = detailsEl as HTMLDetailsElement;
-            const summaryText = details.querySelector('summary')?.textContent?.trim() || '';
-            const isOpen = this.settingsViewState.get(`${index}:${summaryText}`);
-            if (isOpen) details.setAttr('open', 'true');
-            else details.removeAttribute('open');
-        });
-        containerEl.scrollTop = this.settingsScrollTop;
+    }
+
+    private renderDiagnosticsSettings(parent: HTMLElement): void {
+        new Setting(parent)
+            .setName('Enable Logging')
+            .setDesc('Log detailed info to console')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.enableLogging)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableLogging = value;
+                    logger.flow('SettingsUI', 'logging-toggle', { enabled: value });
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(parent)
+            .setName('Dry Run Delivery Setup')
+            .setDesc('Validate the ntfy URL, headers, priority, and fallback body without sending a network request.')
+            .addButton(button => button
+                .setButtonText('Dry Run')
+                .onClick(() => {
+                    logger.flow('SettingsUI', 'dry-run:start');
+                    try {
+                        const request = this.plugin.dryRunMessage(
+                            'Dry run notification from TPS Notifier',
+                            undefined,
+                            'TPS Notifier Dry Run',
+                        );
+                        logger.flow('SettingsUI', 'dry-run:done', { ...summarizeNotifierTarget(request.url) });
+                        new Notice(`Dry run prepared: ${request.url}`);
+                    } catch (e) {
+                        logger.flowError('SettingsUI', 'dry-run:failed', e);
+                        new Notice(getManualComposerFailureMessage(e));
+                    }
+                }));
     }
 }

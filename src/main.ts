@@ -85,6 +85,7 @@ export default class TPSNotifier extends Plugin {
 
     onunload() {
         logger.flow('Plugin', 'unload');
+        logger.setLoggingEnabled(false);
         delete (this as any).api;
     }
 

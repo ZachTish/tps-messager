@@ -9,8 +9,9 @@ const recentMessages = new Map<string, number>();
 const DEDUP_WINDOW_MS = 3000;
 
 export function setLoggingEnabled(value: boolean): void {
+  const wasEnabled = loggingEnabled;
   loggingEnabled = !!value;
-  if (value) {
+  if (loggingEnabled && !wasEnabled) {
     console.log(`${PLUGIN_PREFIX} [Logger] Debug logging enabled — ${new Date().toISOString()}`);
   }
 }

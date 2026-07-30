@@ -1,5 +1,11 @@
 # TPS Notifier
 
+## 1.1.1
+
+- Debug enablement announcements now occur only when logging actually changes from disabled to enabled, eliminating duplicate console writes from ordinary settings saves.
+- Unload emits its final diagnostic before resetting logger state, so a later plugin lifecycle can announce one fresh activation.
+- Delivery, ntfy requests, manual composer behavior, protocols, settings, public APIs, and minimum Obsidian compatibility are unchanged.
+
 ## 1.1.0
 
 - Settings now use three clean destinations for delivery, the manual composer, and diagnostics, rendering only the selected page.
@@ -12,6 +18,7 @@ Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtish
 
 - 2026-07-16 isolation validation: all 21 declared tests and the required final `npm run build` passed with `[runtime-deploy] target=test ... unchanged`. Obsidian 1.12.7 loaded Notifier disabled in the registered test vault, with no copied topic and no outbound notification. No live promotion occurred, and production runtime checksums remained unchanged.
 - 2026-07-24 settings-release validation: all 26 contract, persistence, routed-settings, composer, and safety tests passed. The required final standalone build deployed only to `[runtime-deploy] target=test`. Obsidian 1.12.7 was reloaded with `Reload app without saving`; all three settings destinations and the shared nine-plugin `Choose what to configure` pattern were inspected in the registered test vault with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent and production was not accessed or promoted.
+- 2026-07-30 logger-release validation: the released logger emitted 100 enablement announcements for a synthetic burst of 100 redundant `setLoggingEnabled(true)` calls; version 1.1.1 emits one, a 99% reduction for that redundant-announcement path. Focused tests also preserved enabled/disabled diagnostic gating, reactivation, and unload ordering. All 28 tests and the required final build passed. Obsidian 1.12.7 was reloaded in the registered test vault, and all settings destinations rendered with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
 
 ## Install with BRAT
 
@@ -70,7 +77,7 @@ src/
 
 ## Diagnostics
 
-Debug logging is gated behind `Enable Logging`; errors always log. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, HTTP status failures, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Provider errors are redacted before they reach Notifier diagnostics or downstream retry UI.
+Debug logging is gated behind `Enable Logging`; errors always log. The enablement announcement occurs once per disabled-to-enabled transition rather than on every settings-save synchronization, and unload resets the logger after its final trace. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, HTTP status failures, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Provider errors are redacted before they reach Notifier diagnostics or downstream retry UI.
 
 Obsidian passes protocol query values to handlers already decoded. Notifier validates and normalizes that decoded path exactly once, preserving legitimate percent characters such as `100% Complete.md` or a literal `%20`, rejecting traversal/absolute paths, and converting an unexpected open failure into an actionable notice instead of an unhandled callback rejection.
 
@@ -147,9 +154,11 @@ The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps
   - dry-run command/API/settings diagnostics prepare requests without sending
   - already-decoded protocol paths preserve literal percent characters and reject traversal/absolute paths
   - delivery diagnostics redact ntfy topics, URL credentials, full targets, and custom title text
+  - logger enablement is transition-aware, preserves diagnostic gating, and resets after the unload trace
 
 ## Version notes
 
+- 1.1.1: Made logger activation idempotent across repeated settings saves while preserving one announcement per real activation and resetting state after unload.
 - 1.1.0: Reorganized settings into a shallow accessible destination hub, removed nested settings disclosures, and added conditional focus restoration plus mobile-safe controls without changing delivery behavior or data.
 - 1.0.1: Made settings persistence merge local intent into the newest data, preserve unknown fields, fail closed after read errors, and durably save server/topic edits without an unload-unsafe timer.
 - 1.0.0: Established the transport-only TPS Notifier contract with ntfy delivery, manual composer, dry-run diagnostics, safe protocol links, and Controller integration.

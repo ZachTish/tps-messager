@@ -284,36 +284,42 @@ export default class TPSNotifier extends Plugin {
             throw error;
         }
 
-        try {
-            const target = summarizeNotifierTarget(request.url);
-            logger.flow('Delivery', 'send:request', {
-                ...target,
-                priority: request.headers.Priority,
-                hasClick: !!request.headers.Click,
-                bodyLength: request.body.length,
-            });
-            const response = await requestUrl(request);
+        const target = summarizeNotifierTarget(request.url);
+        logger.flow('Delivery', 'send:request', {
+            ...target,
+            priority: request.headers.Priority,
+            hasClick: !!request.headers.Click,
+            bodyLength: request.body.length,
+        });
 
-            if (response.status >= 200 && response.status < 300) {
-                logger.flow('Delivery', 'send:done', {
-                    status: response.status,
-                    ...target,
-                });
-            } else {
-                const err = response.text;
-                logger.flowError('Delivery', 'send:http-failed', sanitizeNotifierDeliveryError(new Error(err || 'request failed'), request.url), {
-                    status: response.status,
-                    ...target,
-                });
-                throw new Error(`ntfy returned ${response.status}: ${err || 'request failed'}`);
-            }
+        let response: Awaited<ReturnType<typeof requestUrl>>;
+        try {
+            response = await requestUrl({
+                ...request,
+                throw: false,
+            });
         } catch (error) {
             const safeError = sanitizeNotifierDeliveryError(error, request.url);
-            logger.flowError('Delivery', 'send:failed', safeError, {
-                ...summarizeNotifierTarget(request.url),
+            logger.flowError('Delivery', 'send:failed', safeError, { ...target });
+            throw safeError;
+        }
+
+        if (response.status < 200 || response.status >= 300) {
+            const safeError = sanitizeNotifierDeliveryError(
+                new Error(`ntfy returned ${response.status}: ${response.text || 'request failed'}`),
+                request.url,
+            );
+            logger.flowError('Delivery', 'send:http-failed', safeError, {
+                status: response.status,
+                ...target,
             });
             throw safeError;
         }
+
+        logger.flow('Delivery', 'send:done', {
+            status: response.status,
+            ...target,
+        });
     }
 
     dryRunMessage(text: string, file?: TFile, title?: string): PreparedNotifierRequest {

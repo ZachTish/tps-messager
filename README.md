@@ -1,5 +1,11 @@
 # TPS Notifier
 
+## 1.1.2
+
+- Delivery now requests documented non-throwing HTTP responses from Obsidian so every non-2xx ntfy status follows the same structured status path.
+- HTTP failures and transport failures are classified, sanitized, and logged exactly once instead of allowing redirects to be double-logged or ordinary 4xx/5xx responses to bypass status handling.
+- Successful sends, rejection behavior, delivery settings, request preparation, dry runs, manual composer behavior, protocols, public APIs, and minimum Obsidian compatibility are unchanged. Automatic retries were not added because repeating a notification POST can duplicate delivery.
+
 ## 1.1.1
 
 - Debug enablement announcements now occur only when logging actually changes from disabled to enabled, eliminating duplicate console writes from ordinary settings saves.
@@ -19,6 +25,7 @@ Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtish
 - 2026-07-16 isolation validation: all 21 declared tests and the required final `npm run build` passed with `[runtime-deploy] target=test ... unchanged`. Obsidian 1.12.7 loaded Notifier disabled in the registered test vault, with no copied topic and no outbound notification. No live promotion occurred, and production runtime checksums remained unchanged.
 - 2026-07-24 settings-release validation: all 26 contract, persistence, routed-settings, composer, and safety tests passed. The required final standalone build deployed only to `[runtime-deploy] target=test`. Obsidian 1.12.7 was reloaded with `Reload app without saving`; all three settings destinations and the shared nine-plugin `Choose what to configure` pattern were inspected in the registered test vault with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent and production was not accessed or promoted.
 - 2026-07-30 logger-release validation: the released logger emitted 100 enablement announcements for a synthetic burst of 100 redundant `setLoggingEnabled(true)` calls; version 1.1.1 emits one, a 99% reduction for that redundant-announcement path. Focused tests also preserved enabled/disabled diagnostic gating, reactivation, and unload ordering. All 28 tests and the required final build passed. Obsidian 1.12.7 was reloaded in the registered test vault, and all settings destinations rendered with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
+- 2026-07-30 delivery-status validation: the exact 1.1.1 path omitted the documented non-throwing request option, classified a returned 307 twice, and reduced an ordinary 503 rejection to a generic transport failure. Version 1.1.2 sends `throw: false`; synthetic 204, 307, 503, and network outcomes each followed the expected single route with sanitized diagnostics. All 29 tests and the required final build passed. Obsidian 1.12.7 reloaded the registered test vault and exposed both Notifier commands; the palette was dismissed without running the dry run, opening the composer, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
 
 ## Install with BRAT
 
@@ -42,6 +49,7 @@ TPS Controller owns reminder evaluation, overdue state, snoozing, and the in-vau
 - Supports a master transport enable/disable toggle.
 - Includes an Obsidian callback link when Controller passes a source file.
 - Uses Obsidian `requestUrl` for plugin-safe delivery.
+- Treats every 2xx response as success, reports every other HTTP status through one sanitized `ntfy returned <status>` failure, and keeps DNS/TLS/timeout failures on a separate transport path.
 - Includes a dry-run command and settings diagnostic that validate the prepared ntfy URL, headers, priority, callback link, and fallback body without sending a network request.
 
 ### Manual Composer
@@ -77,7 +85,7 @@ src/
 
 ## Diagnostics
 
-Debug logging is gated behind `Enable Logging`; errors always log. The enablement announcement occurs once per disabled-to-enabled transition rather than on every settings-save synchronization, and unload resets the logger after its final trace. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, HTTP status failures, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Provider errors are redacted before they reach Notifier diagnostics or downstream retry UI.
+Debug logging is gated behind `Enable Logging`; errors always log. The enablement announcement occurs once per disabled-to-enabled transition rather than on every settings-save synchronization, and unload resets the logger after its final trace. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, exactly one HTTP-status or transport failure classification, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Delivery errors are redacted before they reach Notifier diagnostics or downstream retry UI.
 
 Obsidian passes protocol query values to handlers already decoded. Notifier validates and normalizes that decoded path exactly once, preserving legitimate percent characters such as `100% Complete.md` or a literal `%20`, rejecting traversal/absolute paths, and converting an unexpected open failure into an actionable notice instead of an unhandled callback rejection.
 
@@ -119,7 +127,7 @@ The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps
 
 ## Planned Improvements
 
-- Add bounded retry with backoff for failed ntfy pushes.
+- Evaluate retries only if a future delivery contract can prove idempotency; the current plugin deliberately avoids automatic POST retries that could duplicate notifications.
 - Add a rolling delivery log for troubleshooting.
 
 ## Integration
@@ -154,10 +162,12 @@ The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps
   - dry-run command/API/settings diagnostics prepare requests without sending
   - already-decoded protocol paths preserve literal percent characters and reject traversal/absolute paths
   - delivery diagnostics redact ntfy topics, URL credentials, full targets, and custom title text
+  - 2xx, redirect, 4xx/5xx, and transport outcomes use documented request semantics and exactly one failure route
   - logger enablement is transition-aware, preserves diagnostic gating, and resets after the unload trace
 
 ## Version notes
 
+- 1.1.2: Made ntfy HTTP handling deterministic with documented non-throwing responses, one sanitized failure classification per request, and no automatic retry or public-contract change.
 - 1.1.1: Made logger activation idempotent across repeated settings saves while preserving one announcement per real activation and resetting state after unload.
 - 1.1.0: Reorganized settings into a shallow accessible destination hub, removed nested settings disclosures, and added conditional focus restoration plus mobile-safe controls without changing delivery behavior or data.
 - 1.0.1: Made settings persistence merge local intent into the newest data, preserve unknown fields, fail closed after read errors, and durably save server/topic edits without an unload-unsafe timer.

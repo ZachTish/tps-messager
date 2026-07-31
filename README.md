@@ -1,5 +1,12 @@
 # TPS Notifier
 
+## 1.1.4
+
+- Diagnostic deduplication now treats a prior timestamp newer than the current clock as a wall-clock rollback, emits the current diagnostic, and starts a fresh 3,000 ms window. Repeated delivery or settings failures can no longer remain hidden until the clock catches up.
+- Cleanup drops future-dated history on its first eligible scan after a rollback instead of retaining and rescanning that stale epoch until wall time catches up. Timestamp zero now participates in deduplication instead of bypassing the window through a falsy-value check.
+- Across 250,000 deterministic monotonic events, exact public `1.1.3` and this candidate emitted the same calls with the same output hash. In a 10,000-key, 20-cycle rollback workload, cleanup scans fell from 21 to two and entry visits from 200,341 to 10,303 while rollback output remained identical. Monotonic behavior, exact 2,999/3,000 ms boundaries, console levels and arguments, logging gates, and always-on errors remain unchanged.
+- Delivery, ntfy requests, retry policy, settings persistence, manual composer behavior, protocols, public APIs, commands, and persisted data are unchanged. This backward-compatible patch keeps the minimum supported Obsidian version at 1.10.0 and requires no migration.
+
 ## 1.1.3
 
 - High-cardinality diagnostic cleanup now scans the dedupe map only when its oldest retained key can actually expire. The released path rescanned every retained key after each accepted message once the map exceeded 300 entries, even when time had not advanced.
@@ -34,6 +41,7 @@ Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtish
 - 2026-07-30 logger-release validation: the released logger emitted 100 enablement announcements for a synthetic burst of 100 redundant `setLoggingEnabled(true)` calls; version 1.1.1 emits one, a 99% reduction for that redundant-announcement path. Focused tests also preserved enabled/disabled diagnostic gating, reactivation, and unload ordering. All 28 tests and the required final build passed. Obsidian 1.12.7 was reloaded in the registered test vault, and all settings destinations rendered with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
 - 2026-07-30 delivery-status validation: the exact 1.1.1 path omitted the documented non-throwing request option, classified a returned 307 twice, and reduced an ordinary 503 rejection to a generic transport failure. Version 1.1.2 sends `throw: false`; synthetic 204, 307, 503, and network outcomes each followed the expected single route with sanitized diagnostics. All 29 tests and the required final build passed. Obsidian 1.12.7 reloaded the registered test vault and exposed both Notifier commands; the palette was dismissed without running the dry run, opening the composer, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
 - 2026-07-31 logger-cleanup validation: exact public `1.1.2` and `1.1.3` produced identical output and retained-map state across one million deterministic events, including exact window boundaries and adversarial clock movement. The 8,000-key burst reduced scans from 7,700 to one and median time by 98.59%. All 30 declared checks and the required separate build passed. Obsidian 1.12.7 reloaded the registered test vault and exposed both Notifier commands; the palette was dismissed without running either command, opening the composer, changing settings, or sending a notification. Runtime `data.json` remained absent, and production was not accessed.
+- 2026-07-31 clock-regression validation: exact public `1.1.3` suppressed an identical error after a one-hour backward clock jump and retained future-dated cleanup history until wall time caught up. Version `1.1.4` reanchors that key immediately, preserves suppression at +2,999 ms, emits at exactly +3,000 ms, and removes stale future history on the first eligible cleanup. The focused logger suite passed 5/5 and the full declared suite passed 32/32. The versioned build deployed only `main.js` and `manifest.json` to the isolated test runtime, Obsidian 1.12.7 reloaded with both Notifier commands registered, and the palette was dismissed without running either command, opening the composer, changing settings, or sending a notification. Source/runtime artifacts were byte-identical, runtime `data.json` remained absent, `.hotreload` remained unchanged, and production was not accessed.
 
 ## Install with BRAT
 
@@ -173,9 +181,11 @@ The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps
   - 2xx, redirect, 4xx/5xx, and transport outcomes use documented request semantics and exactly one failure route
   - logger enablement is transition-aware, preserves diagnostic gating, and resets after the unload trace
   - high-cardinality logger cleanup preserves dedupe output and exact time boundaries while avoiding scans before any retained key can expire
+  - logger dedupe reanchors after backward wall-clock movement, drops future-dated cleanup history, and handles timestamp zero without changing monotonic timing boundaries
 
 ## Version notes
 
+- 1.1.4: Reanchored diagnostic dedupe and removed stale future-dated cleanup history after backward wall-clock movement while preserving the exact 3,000 ms window.
 - 1.1.3: Guarded high-cardinality logger cleanup by the earliest possible expiry, eliminating repeated full-map scans without changing diagnostic output or delivery behavior.
 - 1.1.2: Made ntfy HTTP handling deterministic with documented non-throwing responses, one sanitized failure classification per request, and no automatic retry or public-contract change.
 - 1.1.1: Made logger activation idempotent across repeated settings saves while preserving one announcement per real activation and resetting state after unload.

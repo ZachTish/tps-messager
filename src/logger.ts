@@ -28,14 +28,14 @@ function shouldLog(level: string, message: string, params: any[]): boolean {
   const key = `${level}:${message}:${tail}`;
   const now = Date.now();
   const last = recentMessages.get(key);
-  if (last && now - last < DEDUP_WINDOW_MS) return false;
+  if (last !== undefined && now >= last && now - last < DEDUP_WINDOW_MS) return false;
   recentMessages.set(key, now);
   if (recentMessages.size > 300) {
     nextCleanupAfter = Math.min(nextCleanupAfter, now + DEDUP_WINDOW_MS);
     if (now > nextCleanupAfter) {
       nextCleanupAfter = Number.POSITIVE_INFINITY;
       for (const [k, ts] of recentMessages.entries()) {
-        if (now - ts > DEDUP_WINDOW_MS) recentMessages.delete(k);
+        if (ts > now || now - ts > DEDUP_WINDOW_MS) recentMessages.delete(k);
         else nextCleanupAfter = Math.min(nextCleanupAfter, ts + DEDUP_WINDOW_MS);
       }
       if (recentMessages.size <= 300) nextCleanupAfter = Number.NEGATIVE_INFINITY;

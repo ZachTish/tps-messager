@@ -7,6 +7,7 @@ const PLUGIN_PREFIX = "[TPS Notifier]";
 let loggingEnabled = false;
 const recentMessages = new Map<string, number>();
 const DEDUP_WINDOW_MS = 3000;
+let nextCleanupAfter = Number.NEGATIVE_INFINITY;
 
 export function setLoggingEnabled(value: boolean): void {
   const wasEnabled = loggingEnabled;
@@ -30,8 +31,14 @@ function shouldLog(level: string, message: string, params: any[]): boolean {
   if (last && now - last < DEDUP_WINDOW_MS) return false;
   recentMessages.set(key, now);
   if (recentMessages.size > 300) {
-    for (const [k, ts] of recentMessages.entries()) {
-      if (now - ts > DEDUP_WINDOW_MS) recentMessages.delete(k);
+    nextCleanupAfter = Math.min(nextCleanupAfter, now + DEDUP_WINDOW_MS);
+    if (now > nextCleanupAfter) {
+      nextCleanupAfter = Number.POSITIVE_INFINITY;
+      for (const [k, ts] of recentMessages.entries()) {
+        if (now - ts > DEDUP_WINDOW_MS) recentMessages.delete(k);
+        else nextCleanupAfter = Math.min(nextCleanupAfter, ts + DEDUP_WINDOW_MS);
+      }
+      if (recentMessages.size <= 300) nextCleanupAfter = Number.NEGATIVE_INFINITY;
     }
   }
   return true;

@@ -1,5 +1,12 @@
 # TPS Notifier
 
+## 1.1.3
+
+- High-cardinality diagnostic cleanup now scans the dedupe map only when its oldest retained key can actually expire. The released path rescanned every retained key after each accepted message once the map exceeded 300 entries, even when time had not advanced.
+- The cleanup deadline follows accepted timestamps, handles clock regressions, and resets when cleanup drops below the threshold. Dedupe keys, the exact 3,000 ms boundary, console levels/arguments, debug gating, always-on errors, and expiry behavior remain unchanged.
+- In the focused 1,000-message regression, full-map scans fell from 700 to one without changing 1,000 emitted errors. One million released-vs-candidate events produced zero output or retained-map differences; an 8,000-key burst reduced scans from 7,700 to one and median time from 217.50 ms to 3.06 ms (98.59%).
+- Delivery, ntfy requests, manual composer behavior, protocols, settings, public APIs, commands, and persisted data are unchanged. This backward-compatible patch keeps the minimum supported Obsidian version at 1.10.0 and requires no migration.
+
 ## 1.1.2
 
 - Delivery now requests documented non-throwing HTTP responses from Obsidian so every non-2xx ntfy status follows the same structured status path.
@@ -26,6 +33,7 @@ Canonical source, tests, Git metadata, and dependencies live in `/Users/zachtish
 - 2026-07-24 settings-release validation: all 26 contract, persistence, routed-settings, composer, and safety tests passed. The required final standalone build deployed only to `[runtime-deploy] target=test`. Obsidian 1.12.7 was reloaded with `Reload app without saving`; all three settings destinations and the shared nine-plugin `Choose what to configure` pattern were inspected in the registered test vault with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent and production was not accessed or promoted.
 - 2026-07-30 logger-release validation: the released logger emitted 100 enablement announcements for a synthetic burst of 100 redundant `setLoggingEnabled(true)` calls; version 1.1.1 emits one, a 99% reduction for that redundant-announcement path. Focused tests also preserved enabled/disabled diagnostic gating, reactivation, and unload ordering. All 28 tests and the required final build passed. Obsidian 1.12.7 was reloaded in the registered test vault, and all settings destinations rendered with delivery disabled and without changing settings, running the dry-run action, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
 - 2026-07-30 delivery-status validation: the exact 1.1.1 path omitted the documented non-throwing request option, classified a returned 307 twice, and reduced an ordinary 503 rejection to a generic transport failure. Version 1.1.2 sends `throw: false`; synthetic 204, 307, 503, and network outcomes each followed the expected single route with sanitized diagnostics. All 29 tests and the required final build passed. Obsidian 1.12.7 reloaded the registered test vault and exposed both Notifier commands; the palette was dismissed without running the dry run, opening the composer, or sending a notification. Runtime-owned state remained absent, and production was not accessed.
+- 2026-07-31 logger-cleanup validation: exact public `1.1.2` and `1.1.3` produced identical output and retained-map state across one million deterministic events, including exact window boundaries and adversarial clock movement. The 8,000-key burst reduced scans from 7,700 to one and median time by 98.59%. All 30 declared checks and the required separate build passed. Obsidian 1.12.7 reloaded the registered test vault and exposed both Notifier commands; the palette was dismissed without running either command, opening the composer, changing settings, or sending a notification. Runtime `data.json` remained absent, and production was not accessed.
 
 ## Install with BRAT
 
@@ -85,7 +93,7 @@ src/
 
 ## Diagnostics
 
-Debug logging is gated behind `Enable Logging`; errors always log. The enablement announcement occurs once per disabled-to-enabled transition rather than on every settings-save synchronization, and unload resets the logger after its final trace. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, exactly one HTTP-status or transport failure classification, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Delivery errors are redacted before they reach Notifier diagnostics or downstream retry UI.
+Debug logging is gated behind `Enable Logging`; errors always log. The enablement announcement occurs once per disabled-to-enabled transition rather than on every settings-save synchronization, and unload resets the logger after its final trace. Dedupe-map cleanup begins above 300 retained keys and is guarded by the earliest possible expiry, avoiding repeated full scans before any key can expire while preserving the exact 3,000 ms boundary. When enabled, Notifier traces plugin load/unload, settings load/save queueing and failures, settings dry-run/test-send button clicks, manual composer opens/submits, dry-run preparation, delivery preparation failures, sanitized ntfy host/security/topic-presence metadata, priority/click-link presence, exactly one HTTP-status or transport failure classification, and protocol callback open decisions. Message bodies, custom title text, ntfy topics, URL credentials, and full delivery URLs are not logged. Delivery errors are redacted before they reach Notifier diagnostics or downstream retry UI.
 
 Obsidian passes protocol query values to handlers already decoded. Notifier validates and normalizes that decoded path exactly once, preserving legitimate percent characters such as `100% Complete.md` or a literal `%20`, rejecting traversal/absolute paths, and converting an unexpected open failure into an actionable notice instead of an unhandled callback rejection.
 
@@ -164,9 +172,11 @@ The plugin is named TPS Notifier. Its package, manifest, and protocol id is `tps
   - delivery diagnostics redact ntfy topics, URL credentials, full targets, and custom title text
   - 2xx, redirect, 4xx/5xx, and transport outcomes use documented request semantics and exactly one failure route
   - logger enablement is transition-aware, preserves diagnostic gating, and resets after the unload trace
+  - high-cardinality logger cleanup preserves dedupe output and exact time boundaries while avoiding scans before any retained key can expire
 
 ## Version notes
 
+- 1.1.3: Guarded high-cardinality logger cleanup by the earliest possible expiry, eliminating repeated full-map scans without changing diagnostic output or delivery behavior.
 - 1.1.2: Made ntfy HTTP handling deterministic with documented non-throwing responses, one sanitized failure classification per request, and no automatic retry or public-contract change.
 - 1.1.1: Made logger activation idempotent across repeated settings saves while preserving one announcement per real activation and resetting state after unload.
 - 1.1.0: Reorganized settings into a shallow accessible destination hub, removed nested settings disclosures, and added conditional focus restoration plus mobile-safe controls without changing delivery behavior or data.

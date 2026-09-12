@@ -47,17 +47,9 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
         containerEl.empty();
 
         containerEl.createEl('h2', { text: 'TPS Notifier Settings' });
-        containerEl.createEl('p', {
-            text: 'Keep this plugin focused on transport settings. TPS Controller can use it for reminder delivery once connection is configured.',
-            cls: 'setting-item-description'
-        });
 
         const routeHub = containerEl.createDiv({ cls: 'tps-notifier-settings-hub' });
         routeHub.createEl('h3', { text: 'Choose what to configure' });
-        routeHub.createEl('p', {
-            text: 'Pick one destination. Your other settings stay saved and out of the way.',
-            cls: 'setting-item-description',
-        });
 
         const routeNav = routeHub.createDiv({
             cls: 'tps-notifier-settings-routes',
@@ -71,12 +63,11 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
                 attr: {
                     type: 'button',
                     'aria-pressed': String(isActive),
-                    'aria-label': `${route.title}: ${route.description}`,
+                    'aria-label': route.title,
                 },
             });
             if (isActive) activeRouteButton = button;
             button.createSpan({ cls: 'tps-notifier-settings-route-title', text: route.title });
-            button.createSpan({ cls: 'tps-notifier-settings-route-description', text: route.description });
             button.addEventListener('click', () => {
                 if (this.activeRoute === route.id) return;
                 this.activeRoute = route.id;
@@ -90,10 +81,6 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
         const pageHeading = page.createEl('h3', {
             text: route.title,
             attr: { tabindex: '-1' },
-        });
-        page.createEl('p', {
-            text: route.description,
-            cls: 'setting-item-description tps-notifier-settings-page-description',
         });
 
         if (route.id === 'delivery') {
@@ -149,7 +136,6 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
 
             new Setting(parent)
                 .setName('ntfy Topic')
-                .setDesc('Your unique topic name')
                 .addText(text => text
                     .setPlaceholder('my-reminders')
                     .setValue(this.plugin.settings.ntfyTopic)
@@ -160,7 +146,6 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
 
             new Setting(parent)
                 .setName('Priority')
-                .setDesc('Notification priority (1-5)')
                 .addSlider(slider => slider
                     .setLimits(1, 5, 1)
                     .setValue(this.plugin.settings.ntfyPriority)
@@ -192,7 +177,6 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
         if (this.plugin.settings.enabled === true && (this.plugin.settings.enableManualComposer ?? true)) {
             new Setting(parent)
                 .setName('Send Test Notification')
-                .setDesc('Send a test notification to verify connection')
                 .addButton(button => button
                     .setButtonText('Send Test')
                     .onClick(async () => {
@@ -221,7 +205,6 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
     private renderDiagnosticsSettings(parent: HTMLElement): void {
         new Setting(parent)
             .setName('Enable Logging')
-            .setDesc('Log detailed info to console')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.enableLogging)
                 .onChange(async (value) => {

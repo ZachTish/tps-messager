@@ -1,5 +1,9 @@
 # TPS Notifier
 
+## Development workflow
+
+Run `npm test`, then `npm run build` for the separate final production-mode build. Both commands stay inside this checkout and never deploy or reload a vault. The build needs only this repository and its declared dependencies; no parent workspace helper is imported. Deployment is an explicit test-vault operation owned by the workspace release checklist. Runtime artifacts and private settings are never copied back into source. This tooling-only change does not alter the plugin version or runtime behavior.
+
 Configured ntfy notification delivery and a manual composer for the TPS suite.
 
 Current release: [1.1.5](https://github.com/ZachTish/tps-messager/releases/tag/1.1.5) · Obsidian 1.10.0+ · Desktop and mobile.
@@ -27,20 +31,6 @@ Controller and other TPS consumers decide when to request a notification. This p
 ## Development and repository policy
 
 `main` is the stable source line. Numeric tags identify immutable released artifacts. `optimization` is an unreleased work-in-progress lane; do not install it through BRAT or merge it into stable without separate validation.
-
-The supported build lives inside `Obsidian Plugin Test Vault/Plugin Development`, with `tps-messager` as the mapped stable source. These repositories depend on adjacent shared tooling including `deploy-runtime.mjs`; a standalone clone is not currently self-contained.
-
-From the contained workspace, prepare dependencies using the shared helper, then run tests and a separate final build:
-
-```sh
-# From Plugin Development:
-node ./prepare-dependencies.mjs "tps-messager"
-cd "tps-messager"
-npm test
-npm run build
-```
-
-Dependencies stay in the vault's `.plugin-dev-cache.nosync` through a relative `node_modules` symlink. Use a clean, current checkout; preserve unrelated changes and never build an old dirty worktree into the test runtime. Stable builds deploy only shipped artifacts to the test vault. Optimization builds are build-only. Runtime `data.json`, secrets, caches, and session state never belong in Git.
 
 Documentation-only maintenance does not create a new plugin version. Published release tags and assets are preserved. Do not rely on legacy version/release scripts without reviewing their current behavior. Production updates remain the user's BRAT handoff.
 

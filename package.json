@@ -1,13 +1,15 @@
 {
     "name": "tps-messager",
-    "version": "1.1.5",
+    "version": "1.2.0",
     "description": "Push notification delivery transport for the TPS suite via ntfy.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
-        "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node --test scripts/test-tps-contracts.mjs && node --test scripts/test-notifier-contract.mjs && node --test scripts/test-notifier-settings.mjs && node --test scripts/test-manual-composer.mjs && node --test scripts/test-notifier-safety.mjs && node --test scripts/test-logger.mjs",
-        "version": "1.0.0"
+        "build": "npm run settings:search:check && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+        "test": "node --test scripts/test-native-settings-search.mjs && node --test scripts/test-tps-contracts.mjs && node --test scripts/test-notifier-contract.mjs && node --test scripts/test-notifier-settings.mjs && node --test scripts/test-manual-composer.mjs && node --test scripts/test-notifier-safety.mjs && node --test scripts/test-logger.mjs",
+        "version": "1.0.0",
+        "settings:search": "node scripts/generate-settings-search.mjs",
+        "settings:search:check": "node scripts/generate-settings-search.mjs --check"
     },
     "keywords": [],
     "author": "",

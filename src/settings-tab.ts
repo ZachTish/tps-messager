@@ -1,4 +1,6 @@
-﻿import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { nativeSettingsSearch, focusSettingsSearchResult, type SettingsSearchEntry } from "./native-settings-search";
+import { SETTINGS_SEARCH_ENTRIES, SETTINGS_SEARCH_ROUTES } from "./settings-search-catalog";
+import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type TPSNotifier from './main';
 import { getManualComposerFailureMessage } from './manual-composer';
 import * as logger from './logger';
@@ -29,6 +31,36 @@ const NOTIFIER_SETTINGS_ROUTES: Array<{
 ];
 
 export class TPSNotifierSettingTab extends PluginSettingTab {
+  private searchContentEl: HTMLElement | null = null;
+  private get settingsContentEl(): HTMLElement {
+    return this.searchContentEl?.isConnected ? this.searchContentEl : this.containerEl;
+  }
+
+  getSettingDefinitions() {
+    return nativeSettingsSearch(SETTINGS_SEARCH_ENTRIES, SETTINGS_SEARCH_ROUTES,
+      container => {
+        this.searchContentEl = container;
+        this.display();
+        return () => { this.hide(); if (this.searchContentEl === container) this.searchContentEl = null; };
+      }, entry => this.openSearchResult(entry));
+  }
+
+  private openSearchResult(entry: SettingsSearchEntry): void {
+    this.activeRoute = entry.route as NotifierSettingsRoute;
+    const manager = (this.app as App & { setting?: { openTabById?: (id: string) => void } }).setting;
+    manager?.openTabById?.(this.plugin.manifest.id);
+    this.display();
+    if (!focusSettingsSearchResult(this.settingsContentEl, entry.name)) {
+      const message = this.settingsContentEl.createDiv({
+        text: `“${entry.name}” is in this area. Its control appears when the relevant feature or saved item is selected.`,
+        attr: { role: 'status', tabindex: '-1' },
+      });
+      this.settingsContentEl.prepend(message);
+      message.focus();
+      message.scrollIntoView({ block: 'start' });
+    }
+  }
+
     plugin: TPSNotifier;
     private activeRoute: NotifierSettingsRoute = 'delivery';
 
@@ -42,7 +74,7 @@ export class TPSNotifierSettingTab extends PluginSettingTab {
     }
 
     private renderSettings(focusRouteHeading = false, focusControlName?: string): void {
-        const { containerEl } = this;
+        const containerEl = this.settingsContentEl;
         const scrollTop = containerEl.scrollTop;
         containerEl.empty();
 
